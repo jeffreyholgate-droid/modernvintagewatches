@@ -1,0 +1,7 @@
+{
+  "name": "Chronos Fine Timepieces",
+  "description": "A luxury watch boutique powered by an autonomous sourcing agent and Gemini AI.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

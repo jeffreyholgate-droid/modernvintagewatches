@@ -1,0 +1,53 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Vintage Watches | Curated Pre‑Owned Timepieces</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');
+      
+      :root {
+        --mvw-bg: #ffffff;
+        --mvw-fg: #111111;
+        --mvw-muted: #6b7280;
+        --mvw-line: #e5e7eb;
+        --mvw-accent: #111111;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: var(--mvw-bg);
+        color: var(--mvw-fg);
+        margin: 0;
+      }
+
+      .font-serif { font-family: 'Libre Baskerville', serif; }
+
+      .text-accent { color: var(--mvw-accent); }
+      .border-line { border-color: var(--mvw-line); }
+      .text-muted { color: var(--mvw-muted); }
+      .bg-page { background-color: var(--mvw-bg); }
+      .bg-ink { background-color: var(--mvw-fg); }
+
+      .selection-luxury::selection {
+        background-color: #111111;
+        color: #ffffff;
+      }
+
+      /* Luxury scrollbar */
+      ::-webkit-scrollbar { width: 6px; }
+      ::-webkit-scrollbar-track { background: #f3f4f6; }
+      ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 10px; }
+      ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+    </style>
+<!-- Dependencies are bundled by Vite for production builds. -->
+</head>
+<body class="selection-luxury">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>
