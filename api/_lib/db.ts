@@ -90,7 +90,7 @@ export async function listItems(opts: { publishedOnly: boolean }): Promise<AppSt
     return (opts.publishedOnly ? mem.items.filter(i => i.publishStatus === PublishState.PUBLISHED) : mem.items);
   }
   let q = supabase.from('items').select('*').order('last_seen_at', { ascending: false });
-  if (opts.publishedOnly) q = q.eq('publish_status', PublishState.PUBLISHED);
+  if (opts.publishedOnly) q = q.eq('publish_state', PublishState.PUBLISHED);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map(rowToItem);
@@ -149,7 +149,7 @@ function itemToRow(i: AppStateItem) {
     status: i.status,
     last_seen_at: i.lastSeenAt,
     first_seen_at: i.firstSeenAt,
-    publish_status: i.publishStatus,
+    publish_state: i.publishStatus,
     score: i.score,
     updated_at: new Date().toISOString(),
   };
@@ -159,7 +159,7 @@ function itemToRowPatch(p: Partial<AppStateItem>) {
   const out: any = { updated_at: new Date().toISOString() };
   if (p.titleBoutique !== undefined) out.title_boutique = p.titleBoutique;
   if (p.description !== undefined) out.description = p.description;
-  if (p.publishStatus !== undefined) out.publish_status = p.publishStatus;
+  if (p.publishStatus !== undefined) out.publish_state = p.publishStatus;
   if (p.score !== undefined) out.score = p.score;
   if (p.titleRaw !== undefined) out.title_raw = p.titleRaw;
   if (p.priceGbp !== undefined) out.price_gbp = p.priceGbp;
@@ -186,7 +186,7 @@ function rowToItem(r: any): AppStateItem {
     status: r.status,
     lastSeenAt: typeof r.last_seen_at === 'string' ? r.last_seen_at : new Date(r.last_seen_at).toISOString(),
     firstSeenAt: typeof r.first_seen_at === 'string' ? r.first_seen_at : new Date(r.first_seen_at).toISOString(),
-    publishStatus: r.publish_status,
+    publishStatus: r.publish_state,
     score: Number(r.score),
   };
 }
