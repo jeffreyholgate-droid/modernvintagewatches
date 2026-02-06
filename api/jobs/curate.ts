@@ -1,8 +1,8 @@
 import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
 import { requireAdmin } from '../_lib/auth.js';
 import { getItemById, updateItem, log } from '../_lib/db.js';
-import { PublishState } from '../../types';
-import { GeminiService } from '../../server/gemini';
+import { PublishState } from '../../types.js';
+import { GeminiService } from '../../server/gemini.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
@@ -37,3 +37,4 @@ export default async function handler(req: any, res: any) {
     return json(res, 500, { error: 'CURATE_FAILED', detail: e?.message ?? 'unknown' });
   }
 }
+

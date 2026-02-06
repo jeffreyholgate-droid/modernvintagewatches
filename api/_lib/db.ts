@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { Category, PublishState, EbayItem } from '../../types';
+import { Category, PublishState, EbayItem } from '../../types.js';
 
 export interface AppStateItem extends EbayItem {
   titleBoutique?: string;
@@ -190,3 +190,4 @@ function rowToItem(r: any): AppStateItem {
     score: Number(r.score),
   };
 }
+

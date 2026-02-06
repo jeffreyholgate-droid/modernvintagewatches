@@ -1,8 +1,8 @@
 import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
 import { requireAdmin } from '../_lib/auth.js';
 import { getSettings, upsertItems, log, AppStateItem } from '../_lib/db.js';
-import { Category, PublishState } from '../../types';
-import { EbayClient } from '../../server/ebay';
+import { Category, PublishState } from '../../types.js';
+import { EbayClient } from '../../server/ebay.js';
 
 function uid() {
   // crypto.randomUUID is available in modern Node runtimes
@@ -58,3 +58,4 @@ export default async function handler(req: any, res: any) {
 
   return json(res, 200, { ok: true, discovered: all.length, upserted: count });
 }
+

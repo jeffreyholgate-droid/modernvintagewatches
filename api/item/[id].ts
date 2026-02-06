@@ -1,7 +1,7 @@
 import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
 import { getItemById, updateItem } from '../_lib/db.js';
 import { verifyAdminToken } from '../_lib/auth.js';
-import { PublishState } from '../../types';
+import { PublishState } from '../../types.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);

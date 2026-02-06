@@ -22,3 +22,4 @@ export default async function handler(req: any, res: any) {
     return json(res, 500, { error: 'TOKEN_ERROR', detail: e?.message ?? 'unknown' });
   }
 }
+

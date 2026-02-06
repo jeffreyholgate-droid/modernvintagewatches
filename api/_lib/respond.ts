@@ -24,3 +24,4 @@ export function methodNotAllowed(res: any, allowed: string[]) {
   res.setHeader('Allow', allowed.join(', '));
   return json(res, 405, { error: 'METHOD_NOT_ALLOWED', allowed });
 }
+

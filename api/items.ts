@@ -22,3 +22,4 @@ export default async function handler(req: any, res: any) {
   const items = await listItems({ publishedOnly });
   json(res, 200, { items });
 }
+

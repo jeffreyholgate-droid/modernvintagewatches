@@ -11,3 +11,4 @@ export default async function handler(req: any, res: any) {
   const logs = await getLogs(Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 200) : 50);
   return json(res, 200, { logs });
 }
+

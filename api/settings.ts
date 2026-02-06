@@ -16,3 +16,4 @@ export default async function handler(req: any, res: any) {
   await saveSettings(body.settings);
   return json(res, 200, { ok: true });
 }
+

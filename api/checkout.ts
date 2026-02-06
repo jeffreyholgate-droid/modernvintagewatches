@@ -52,3 +52,4 @@ export default async function handler(req: any, res: any) {
 
   return json(res, 200, { ok: true, configured: true, url: session.url, id: session.id });
 }
+

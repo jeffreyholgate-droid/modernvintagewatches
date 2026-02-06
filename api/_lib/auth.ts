@@ -42,3 +42,4 @@ export async function requireAdmin(req: any, res: any): Promise<boolean> {
     return false;
   }
 }
+
