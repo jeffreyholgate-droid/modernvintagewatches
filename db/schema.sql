@@ -22,13 +22,13 @@ create table if not exists public.items (
   status text not null,
   last_seen_at timestamptz not null,
   first_seen_at timestamptz not null,
-  publish_status text not null,
+  publish_state text not null,
   score int not null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
-create index if not exists items_publish_status_idx on public.items (publish_status);
+create index if not exists items_publish_state_idx on public.items (publish_state);
 create index if not exists items_last_seen_at_idx on public.items (last_seen_at desc);
 
 create table if not exists public.settings (
