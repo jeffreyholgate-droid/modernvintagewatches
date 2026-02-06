@@ -1,5 +1,5 @@
 
-import { Category, EbayItem } from "../types";
+import { Category, EbayItem } from "../types.js";
 
 export class EbayClient {
   private mode: 'REAL' | 'MOCK';

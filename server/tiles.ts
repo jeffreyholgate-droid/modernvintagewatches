@@ -1,5 +1,5 @@
 
-import { Product } from "../types";
+import { Product } from "../types.js";
 
 /**
  * In a real node environment, this would use the 'canvas' package.

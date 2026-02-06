@@ -7,9 +7,9 @@
 // Basic Express scaffolding (Conceptual)
 /*
 import express from 'express';
-import { GeminiService } from './gemini';
-import { EbayClient } from './ebay';
-import { TileService } from './tiles';
+import { GeminiService } from './gemini.js';
+import { EbayClient } from './ebay.js';
+import { TileService } from './tiles.js';
 
 const app = express();
 const gemini = new GeminiService();

@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Category, NormalizedData, CopyData } from "../types";
+import { Category, NormalizedData, CopyData } from "../types.js";
 
 export class GeminiService {
   /**
