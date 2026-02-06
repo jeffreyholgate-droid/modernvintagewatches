@@ -1,4 +1,4 @@
-import { json, methodNotAllowed, readJson } from './_lib/respond';
+import { json, methodNotAllowed, readJson } from './_lib/respond.js';
 
 type Line = {
   id: string;

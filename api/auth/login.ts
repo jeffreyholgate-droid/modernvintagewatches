@@ -1,5 +1,5 @@
-import { json, methodNotAllowed, readJson } from '../_lib/respond';
-import { signAdminToken } from '../_lib/auth';
+import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
+import { signAdminToken } from '../_lib/auth.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);

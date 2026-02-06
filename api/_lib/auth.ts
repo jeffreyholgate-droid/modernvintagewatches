@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from 'jose';
-import { json } from './respond';
+import { json } from './respond.js';
 
 const textEncoder = new TextEncoder();
 

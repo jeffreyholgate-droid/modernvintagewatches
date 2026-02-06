@@ -1,6 +1,6 @@
-import { json, methodNotAllowed, readJson } from '../_lib/respond';
-import { getItemById, updateItem } from '../_lib/db';
-import { verifyAdminToken } from '../_lib/auth';
+import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
+import { getItemById, updateItem } from '../_lib/db.js';
+import { verifyAdminToken } from '../_lib/auth.js';
 import { PublishState } from '../../types';
 
 export default async function handler(req: any, res: any) {

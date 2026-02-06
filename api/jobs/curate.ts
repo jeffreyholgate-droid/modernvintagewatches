@@ -1,6 +1,6 @@
-import { json, methodNotAllowed, readJson } from '../_lib/respond';
-import { requireAdmin } from '../_lib/auth';
-import { getItemById, updateItem, log } from '../_lib/db';
+import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
+import { requireAdmin } from '../_lib/auth.js';
+import { getItemById, updateItem, log } from '../_lib/db.js';
 import { PublishState } from '../../types';
 import { GeminiService } from '../../server/gemini';
 

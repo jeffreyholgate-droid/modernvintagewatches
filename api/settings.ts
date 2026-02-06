@@ -1,6 +1,6 @@
-import { json, methodNotAllowed, readJson } from './_lib/respond';
-import { getSettings, saveSettings } from './_lib/db';
-import { requireAdmin } from './_lib/auth';
+import { json, methodNotAllowed, readJson } from './_lib/respond.js';
+import { getSettings, saveSettings } from './_lib/db.js';
+import { requireAdmin } from './_lib/auth.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'PUT') return methodNotAllowed(res, ['GET','PUT']);

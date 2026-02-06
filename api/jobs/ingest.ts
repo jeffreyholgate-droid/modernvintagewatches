@@ -1,6 +1,6 @@
-import { json, methodNotAllowed, readJson } from '../_lib/respond';
-import { requireAdmin } from '../_lib/auth';
-import { getSettings, upsertItems, log, AppStateItem } from '../_lib/db';
+import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
+import { requireAdmin } from '../_lib/auth.js';
+import { getSettings, upsertItems, log, AppStateItem } from '../_lib/db.js';
 import { Category, PublishState } from '../../types';
 import { EbayClient } from '../../server/ebay';
 

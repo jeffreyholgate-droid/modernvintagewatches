@@ -1,6 +1,6 @@
-import { json, methodNotAllowed } from './_lib/respond';
-import { listItems } from './_lib/db';
-import { verifyAdminToken } from './_lib/auth';
+import { json, methodNotAllowed } from './_lib/respond.js';
+import { listItems } from './_lib/db.js';
+import { verifyAdminToken } from './_lib/auth.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') return methodNotAllowed(res, ['GET']);
