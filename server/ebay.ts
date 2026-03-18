@@ -4,9 +4,12 @@ import { Category, EbayItem } from "../types.js";
 export class EbayClient {
   private mode: 'REAL' | 'MOCK';
 
-  constructor() {
-    this.mode = (process.env.EBAY_APP_ID && process.env.EBAY_CERT_ID) ? 'REAL' : 'MOCK';
-  }
+ constructor() {
+  this.mode =
+    process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET
+      ? 'REAL'
+      : 'MOCK';
+}
 
   async searchItems(category: Category, priceMin: number, priceMax: number): Promise<EbayItem[]> {
     return this.generateMockItems(category, priceMin, priceMax);
