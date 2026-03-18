@@ -1,72 +1,14 @@
-import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
-import { requireAdmin } from '../_lib/auth.js';
-import { getSettings, upsertItems, log, AppStateItem } from '../_lib/db.js';
-import { Category, PublishState } from '../../types.js';
-import { EbayClient } from '../../server/ebay.js';
+    console.log('BODY', text);
+  })
+  .catch(console.error);
+Promise {<pending>}
+VM190:1  POST https://modernvintagewatches.vercel.app/api/jobs/ingest 500 (Internal Server Error)
+(anonymous) @ VM190:1Understand this error
+VM190:11 STATUS 500
+VM190:12 BODY A server error has occurred
 
-function uid() {
-  // crypto.randomUUID is available in modern Node runtimes
-  return (globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `id_${Math.random().toString(36).slice(2)}`);
-}
+FUNCTION_INVOCATION_FAILED
 
-export default async function handler(req: any, res: any) {
-  if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
-  const ok = await requireAdmin(req, res);
-  if (!ok) return;
+cdg1::fqnfk-1773863812378-68220949cdeb
 
-  const body = await readJson(req);
-  const overrides = body?.overrides ?? {};
-
-  const settings = await getSettings();
-  const ebay = new EbayClient();
-
-  await log('INFO', 'INGEST: started');
-
-  const all: AppStateItem[] = [];
-  for (const cat of Object.values(Category)) {
-    const priceMin = Number(overrides?.priceMin?.[cat] ?? settings.priceMin[cat as Category]);
-    const priceMax = Number(overrides?.priceMax?.[cat] ?? settings.priceMax[cat as Category]);
-
-    await log('INFO', `INGEST: scanning ${cat} (£${priceMin}-£${priceMax})`);
-
-   const raw = await ebay.searchItems(cat as Category, priceMin, priceMax);
-await log('INFO', `INGEST DEBUG: ${cat} raw=${raw.length}`);
-
-const filtered = raw.filter(i => {
-  const title = (i.titleRaw || '').toLowerCase();
-  const blocked = settings.blockKeywords
-    .split(',')
-    .map(s => s.trim().toLowerCase())
-    .filter(Boolean)
-    .some(k => title.includes(k));
-  if (blocked) return false;
-  if (i.sellerFeedbackPercent < settings.sellerMinFeedback) return false;
-  if (i.sellerFeedbackScore < settings.sellerMinScore) return false;
-  return true;
-});
-
-await log('INFO', `INGEST DEBUG: ${cat} filtered=${filtered.length}`);
-
-const candidates = filtered.map(item => ({
-  ...item,
-  id: uid(),
-  publishStatus: PublishState.UNPUBLISHED,
-  score: Math.floor(Math.random() * 10) + 90,
-}));
-
-await log('INFO', `INGEST DEBUG: ${cat} candidates=${candidates.length}`);
-      ...item,
-      id: uid(),
-      publishStatus: PublishState.UNPUBLISHED,
-      score: Math.floor(Math.random() * 10) + 90,
-    }));
-
-    all.push(...candidates);
-  }
-
-  const count = await upsertItems(all);
-  await log('INFO', `INGEST: complete; candidates=${all.length}; upserted=${count}`);
-
-  return json(res, 200, { ok: true, discovered: all.length, upserted: count });
-}
 
