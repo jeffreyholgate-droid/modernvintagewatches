@@ -29,21 +29,32 @@ export default async function handler(req: any, res: any) {
 
     await log('INFO', `INGEST: scanning ${cat} (£${priceMin}-£${priceMax})`);
 
-    const raw = await ebay.searchItems(cat as Category, priceMin, priceMax);
-    const filtered = raw.filter(i => {
-      const title = (i.titleRaw || '').toLowerCase();
-      const blocked = settings.blockKeywords
-        .split(',')
-        .map(s => s.trim().toLowerCase())
-        .filter(Boolean)
-        .some(k => title.includes(k));
-      if (blocked) return false;
-      if (i.sellerFeedbackPercent < settings.sellerMinFeedback) return false;
-      if (i.sellerFeedbackScore < settings.sellerMinScore) return false;
-      return true;
-    });
+   const raw = await ebay.searchItems(cat as Category, priceMin, priceMax);
+await log('INFO', `INGEST DEBUG: ${cat} raw=${raw.length}`);
 
-    const candidates = filtered.map(item => ({
+const filtered = raw.filter(i => {
+  const title = (i.titleRaw || '').toLowerCase();
+  const blocked = settings.blockKeywords
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+    .some(k => title.includes(k));
+  if (blocked) return false;
+  if (i.sellerFeedbackPercent < settings.sellerMinFeedback) return false;
+  if (i.sellerFeedbackScore < settings.sellerMinScore) return false;
+  return true;
+});
+
+await log('INFO', `INGEST DEBUG: ${cat} filtered=${filtered.length}`);
+
+const candidates = filtered.map(item => ({
+  ...item,
+  id: uid(),
+  publishStatus: PublishState.UNPUBLISHED,
+  score: Math.floor(Math.random() * 10) + 90,
+}));
+
+await log('INFO', `INGEST DEBUG: ${cat} candidates=${candidates.length}`);
       ...item,
       id: uid(),
       publishStatus: PublishState.UNPUBLISHED,
