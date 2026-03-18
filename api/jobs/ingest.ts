@@ -39,6 +39,7 @@ export default async function handler(req: any, res: any) {
     await log('INFO', `INGEST: scanning ${cat} (£${priceMin}-£${priceMax})`);
 
     const raw = await ebay.searchItems(cat as Category, priceMin, priceMax);
+   await log('INFO', `INGEST DEBUG: ${cat} raw=${raw.length}`);
 
     const filtered = raw.filter((i) => {
       const title = (i.titleRaw || '').toLowerCase();
