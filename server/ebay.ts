@@ -52,8 +52,7 @@ export class EbayClient {
 
     const token = await this.getAccessToken();
 
-    const query =
-      'vintage watch OR chronograph OR diver OR dress watch OR tool watch';
+    const query = 'watch';
 
     const marketplaceId = process.env.EBAY_MARKETPLACE_ID || 'EBAY_GB';
     const baseUrl =
@@ -65,14 +64,13 @@ export class EbayClient {
     url.searchParams.set('q', query);
     url.searchParams.set('limit', '50');
     url.searchParams.set(
-      'filter',
-      [
-        `price:[${priceMin}..${priceMax}]`,
-        'priceCurrency:GBP',
-        'buyingOptions:{FIXED_PRICE}',
-        'itemLocationCountry:GB',
-      ].join(',')
-    );
+  'filter',
+  [
+    `price:[${priceMin}..${priceMax}]`,
+    'priceCurrency:GBP',
+    'itemLocationCountry:GB',
+  ].join(',')
+);
     url.searchParams.set('sort', 'newlyListed');
     url.searchParams.set('category_ids', '31387');
 
