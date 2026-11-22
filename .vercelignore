@@ -5,5 +5,6 @@ node_modules
 .vercel
 .git
 .env*
+supabase/.temp/
 logs
 *.log
