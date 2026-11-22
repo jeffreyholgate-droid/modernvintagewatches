@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { EbayClient, evaluatePurchasableItem } from '../server/ebay.js';
+import { EbayClient, evaluatePurchasableItem, evaluateRefreshItem } from '../server/ebay.js';
 import { Category } from '../types.js';
 
 const id = 'v1|123456789012|0';
@@ -50,6 +50,17 @@ test('unknown stock or shipping, mismatched item and malformed prices fail close
   assert.throws(() => evaluatePurchasableItem({ ...active(), itemId: 'different' }, id), /EVIDENCE_INVALID/);
   assert.throws(() => evaluatePurchasableItem({ ...active(), price: { value: 'NaN', currency: 'GBP' } }, id), /PRICE_INVALID/);
   assert.throws(() => evaluatePurchasableItem({ ...active(), price: { value: '0', currency: 'GBP' } }, id), /PRICE_INVALID/);
+});
+
+test('refresh distinguishes active ineligible offers from confirmed ended or sold-out stock', () => {
+  for (const changed of [
+    { ...active(), buyingOptions: ['AUCTION'] },
+    { ...active(), price: { value: '2500', currency: 'USD' } },
+    { ...active(), itemLocation: { country: 'US' } },
+  ]) assert.throws(() => evaluateRefreshItem(changed, id), /EBAY_ITEM_INELIGIBLE/);
+  assert.equal(evaluateRefreshItem({ ...active(), itemEndDate: '2020-01-01T00:00:00Z' }, id), null);
+  assert.equal(evaluateRefreshItem({ ...active(), estimatedAvailabilities: [{ estimatedAvailabilityStatus: 'OUT_OF_STOCK' }] }, id), null);
+  assert.throws(() => evaluateRefreshItem({ ...active(), estimatedAvailabilities: [] }, id), /AVAILABILITY_UNKNOWN/);
 });
 
 test('missing eBay credentials never silently generates mock production inventory', async () => {
@@ -110,5 +121,33 @@ test('verification reads OAuth and the exact encoded source item, distinguishing
       itemStatus = 429;
       await assert.rejects(ebay.verifyItem(id), /lookup failed: 429/);
     } finally { globalThis.fetch = originalFetch; }
+  });
+});
+
+test('full source refresh maps detail fields and shares a token across concurrent item lookups', async () => {
+  await withEnvironment({ EBAY_CLIENT_ID:'test-client', EBAY_CLIENT_SECRET:'test-secret', EBAY_ENV:'sandbox' }, async () => {
+    const originalFetch=globalThis.fetch;
+    let oauthCalls=0;
+    let incomplete=false;
+    globalThis.fetch=async input=>{
+      if(String(input).endsWith('/identity/v1/oauth2/token')){
+        oauthCalls++;
+        return new Response(JSON.stringify({access_token:'test-token',expires_in:7200}));
+      }
+      return new Response(JSON.stringify({...active(),title:'Current source title',itemWebUrl:'https://www.ebay.co.uk/itm/123456789012',
+        image:incomplete?undefined:{imageUrl:'https://i.ebayimg.com/image.jpg'},seller:{username:'fixture',feedbackPercentage:'99.8',feedbackScore:999}}));
+    };
+    try{
+      const client=new EbayClient();
+      const [first,second]=await Promise.all([client.getSourceItem(id,Category.WATCH),client.getSourceItem(id,Category.WATCH)]);
+      assert.equal(oauthCalls,1);
+      assert.equal(first?.titleRaw,'Current source title');
+      assert.equal(first?.shippingGbp,12.5);
+      assert.equal(second?.sellerFeedbackPercent,99.8);
+      assert.equal(second?.imageUrls.length,1);
+      incomplete=true;
+      await assert.rejects(client.getSourceItem(id,Category.WATCH),/METADATA_INCOMPLETE/);
+      assert.equal(oauthCalls,1);
+    }finally{globalThis.fetch=originalFetch;}
   });
 });

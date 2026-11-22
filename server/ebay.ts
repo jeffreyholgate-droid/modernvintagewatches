@@ -89,8 +89,24 @@ export function evaluatePurchasableItem(item: EbayBrowseItem, expectedId: string
   return { priceGbp, shippingGbp };
 }
 
+/** Refresh distinguishes a withdrawn purchase mode from evidence that stock ended. */
+export function evaluateRefreshItem(item: EbayBrowseItem, expectedId: string, now = Date.now()): PurchasableEbayItem | null {
+  const offer = evaluatePurchasableItem(item, expectedId, now);
+  if (offer !== null) return offer;
+  const availability = Array.isArray(item.estimatedAvailabilities) ? item.estimatedAvailabilities : [];
+  const ended = item.itemEndDate && Date.parse(item.itemEndDate) <= now;
+  const soldOut = availability.length > 0 && availability.every(value =>
+    value.estimatedAvailabilityStatus === 'OUT_OF_STOCK' || value.estimatedAvailableQuantity === 0);
+  if (ended || soldOut) return null;
+  // Currency, location and buying-mode changes may leave the seller's listing
+  // active. Withdraw it for review without falsely declaring that listing ended.
+  throw new Error('EBAY_ITEM_INELIGIBLE');
+}
+
 export class EbayClient {
   private mode: 'REAL' | 'MOCK';
+  private accessToken: { value: string; expiresAt: number } | undefined;
+  private tokenRequest: Promise<string> | undefined;
 
   constructor() {
     if (process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET) {
@@ -162,6 +178,24 @@ export class EbayClient {
   }
 
   async getPurchasableItem(itemId: string): Promise<PurchasableEbayItem | null> {
+    const item = await this.getBrowseItem(itemId);
+    return item === null ? null : evaluatePurchasableItem(item, itemId);
+  }
+
+  /** Full current source data. Null means confirmed unavailable; uncertain evidence throws. */
+  async getSourceItem(itemId: string, category: Category): Promise<EbayItem | null> {
+    const item = await this.getBrowseItem(itemId);
+    if (item === null || evaluateRefreshItem(item, itemId) === null) return null;
+    const mapped = this.mapBrowseItemToEbayItem(item, category);
+    if (!mapped || !mapped.imageUrls.length || !item.seller?.username ||
+        !Number.isFinite(mapped.sellerFeedbackPercent) || mapped.sellerFeedbackPercent < 0 || mapped.sellerFeedbackPercent > 100 ||
+        !Number.isSafeInteger(mapped.sellerFeedbackScore) || mapped.sellerFeedbackScore < 0) {
+      throw new Error('EBAY_ITEM_METADATA_INCOMPLETE');
+    }
+    return mapped;
+  }
+
+  private async getBrowseItem(itemId: string): Promise<EbayBrowseItem | null> {
     // Mock listings may be explored locally, but must never be treated as purchasable.
     if (this.mode !== 'REAL') throw new Error('EBAY_REAL_SOURCE_REQUIRED');
     if (!/^v1\|\d+\|\d+$/.test(itemId)) throw new Error('EBAY_ITEM_ID_INVALID');
@@ -178,10 +212,20 @@ export class EbayClient {
     });
     if (response.status === 404 || response.status === 410) return null;
     if (!response.ok) throw new Error(`eBay Browse item lookup failed: ${response.status}`);
-    return evaluatePurchasableItem(await response.json() as EbayBrowseItem, itemId);
+    return await response.json() as EbayBrowseItem;
   }
 
   private async getAccessToken(): Promise<string> {
+    if (this.accessToken && this.accessToken.expiresAt > Date.now()) return this.accessToken.value;
+    // One refresh/import can inspect many IDs concurrently. Reuse one short-lived
+    // token per client and coalesce OAuth calls; neither credentials nor tokens persist.
+    if (this.tokenRequest) return this.tokenRequest;
+    this.tokenRequest = this.requestAccessToken();
+    try { return await this.tokenRequest; }
+    finally { this.tokenRequest = undefined; }
+  }
+
+  private async requestAccessToken(): Promise<string> {
     const clientId = process.env.EBAY_CLIENT_ID;
     const clientSecret = process.env.EBAY_CLIENT_SECRET;
 
@@ -221,6 +265,10 @@ export class EbayClient {
       throw new Error('eBay OAuth response did not include an access token');
     }
 
+    this.accessToken = {
+      value: json.access_token,
+      expiresAt: Date.now() + Math.max(0, Number(json.expires_in || 0) - 60) * 1000,
+    };
     return json.access_token;
   }
 

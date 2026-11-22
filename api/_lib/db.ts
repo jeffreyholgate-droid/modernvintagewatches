@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Category, PublishState, EbayItem } from '../../types.js';
+import type { InventoryRefreshPlan } from '../../server/inventory-refresh.js';
 
 export interface AppStateItem extends EbayItem {
   titleBoutique?: string;
@@ -173,6 +174,40 @@ export async function upsertItems(newItems: AppStateItem[]): Promise<number> {
     }));
   }
   return insertedIds.size;
+}
+
+/** Apply withdrawals BEFORE source updates so each snapshot timestamp still matches. */
+export async function withdrawSourceItems(withdrawals: InventoryRefreshPlan['withdrawals']): Promise<number> {
+  for (const entry of withdrawals) {
+    if (!entry.id || !/^v1\|\d+\|\d+$/.test(entry.ebayItemId) ||
+        !Number.isFinite(Date.parse(entry.expectedLastSeenAt)) ||
+        !['ENDED', 'REVIEW_REQUIRED'].includes(entry.reason)) throw new Error('INVALID_INVENTORY_OBSERVATION');
+  }
+  const supabase = getSupabase();
+  let withdrawn = 0;
+  for (const entry of withdrawals) {
+    if (!supabase) {
+      const item = mem.items.find(value => value.id === entry.id && value.ebayItemId === entry.ebayItemId &&
+        value.status === 'ACTIVE' && Date.parse(value.lastSeenAt) === Date.parse(entry.expectedLastSeenAt));
+      if (item) {
+        item.publishStatus = PublishState.UNPUBLISHED;
+        if (entry.reason === 'ENDED') item.status = 'ENDED';
+        withdrawn++;
+      }
+      continue;
+    }
+    // An order reservation or newer source scan wins over this old observation.
+    // Editorial columns, IDs and first/last-seen timestamps are never written.
+    const { data, error } = await supabase.from('items').update({
+      publish_state: PublishState.UNPUBLISHED,
+      ...(entry.reason === 'ENDED' ? { status: 'ENDED' } : {}),
+      updated_at: new Date().toISOString(),
+    }).eq('id', entry.id).eq('ebay_item_id', entry.ebayItemId)
+      .eq('status', 'ACTIVE').eq('last_seen_at', entry.expectedLastSeenAt).select('id');
+    if (error) throw error;
+    withdrawn += data?.length || 0;
+  }
+  return withdrawn;
 }
 
 function sourceItemPatch(item: AppStateItem): Partial<AppStateItem> {

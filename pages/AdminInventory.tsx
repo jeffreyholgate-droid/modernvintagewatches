@@ -44,6 +44,7 @@ const AdminInventory: React.FC = () => {
 
   const saveReview = async (publish: boolean) => {
     if (!review || !review.title.trim() || !review.description.trim()) return;
+    if (publish && review.item.status !== 'ACTIVE') return;
     setSaving(true);
     setError(null);
     try {
@@ -86,6 +87,7 @@ const AdminInventory: React.FC = () => {
                 <td className="px-6 py-4 max-w-xs">
                   <div className="text-[11px] font-medium text-stone-400 italic line-clamp-1">"{item.titleRaw}"</div>
                   <div className="text-[9px] text-amber-600 font-bold uppercase tracking-widest mt-1">{item.sellerName}</div>
+                  <div className="text-[10px] text-stone-500 mt-1">Source status: {item.status}</div>
                 </td>
                 <td className="px-6 py-4">
                   {item.titleBoutique ? (
@@ -102,19 +104,17 @@ const AdminInventory: React.FC = () => {
                   )}
                 </td>
                 <td className="px-6 py-4">
-                   <span className="font-mono font-bold text-amber-600">{item.score || 'Unreviewed'}</span>
+                   <span className="font-mono font-bold text-amber-600">{item.score > 0 ? item.score : 'Not scored'}</span>
                 </td>
                 <td className="px-6 py-4 font-medium text-stone-900">£{item.priceGbp.toLocaleString()}</td>
                 <td className="px-6 py-4 text-right">
                   {item.publishStatus !== PublishState.PUBLISHED ? (
                     <div className="flex flex-col items-end gap-2">
-                    {item.titleBoutique && item.description && (
                       <button
-                        onClick={() => { setError(null); setReview({ item, title: item.titleBoutique || '', description: item.description || '' }); }}
+                        onClick={() => { setError(null); setReview({ item, title: item.titleBoutique || item.titleRaw, description: item.description || '' }); }}
                         disabled={!!processingState[item.id]}
                         className="border border-stone-900 px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest disabled:opacity-50"
-                      >Review &amp; publish</button>
-                    )}
+                      >{item.status !== 'ACTIVE' ? 'Review listing' : item.titleBoutique && item.description ? 'Review & publish' : 'Write & review listing'}</button>
                     <button 
                       onClick={() => handleExecuteWorkflow(item)}
                       disabled={!!processingState[item.id]}
@@ -141,8 +141,9 @@ const AdminInventory: React.FC = () => {
       {review && (
         <div role="dialog" aria-modal="true" aria-labelledby="review-title" className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white p-6 rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto space-y-4">
-            <h2 id="review-title" className="text-xl font-semibold">Review listing before publication</h2>
-            <p className="text-sm text-stone-600">Check the title, condition, reference and any authenticity claims against the source. AI text has not been verified.</p>
+            <h2 id="review-title" className="text-xl font-semibold">Review listing</h2>
+            <p className="text-sm text-stone-600">Check the title, condition, reference and any authenticity claims against the source, including any generated text. Source availability does not verify condition or authenticity.</p>
+            {review.item.status !== 'ACTIVE' && <p className="text-sm text-amber-800">This source listing is not active. You can save a draft, but it cannot be published.</p>}
             <a href={review.item.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">Open source listing</a>
             <label className="block text-sm">Title
               <input value={review.title} onChange={e => setReview({ ...review, title: e.target.value })} className="block w-full border border-stone-300 p-2 mt-1" />
@@ -152,7 +153,7 @@ const AdminInventory: React.FC = () => {
             </label>
             {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
             <div className="flex flex-wrap gap-3">
-              <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(true)} className="bg-stone-900 text-white px-4 py-2 rounded disabled:opacity-50">Publish reviewed listing</button>
+              {review.item.status === 'ACTIVE' && <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(true)} className="bg-stone-900 text-white px-4 py-2 rounded disabled:opacity-50">Publish reviewed listing</button>}
               <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(false)} className="border border-stone-300 px-4 py-2 rounded disabled:opacity-50">Save draft</button>
               <button disabled={saving} onClick={() => setReview(null)} className="px-4 py-2">Cancel</button>
             </div>

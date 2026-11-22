@@ -118,7 +118,7 @@ const PublicItem: React.FC = () => {
               <img src={image} alt={title} className="w-full h-full object-cover" />
             </div>
             <p className="mt-4 text-xs text-muted">
-              Images are curated for consistency. Ask for additional photos if you want a full condition set.
+              Images supplied by the source seller.
             </p>
           </div>
 
@@ -148,7 +148,7 @@ const PublicItem: React.FC = () => {
             <div className="mt-8 border-t border-line pt-8">
               <h2 className="text-xs uppercase tracking-[0.25em]">Details</h2>
               <div className="mt-5 grid grid-cols-2 gap-y-5 text-sm">
-                <Spec label="Provenance" value={item.locationCountry || 'UK'} />
+                <Spec label="Source location" value={item.locationCountry || 'Not provided'} />
                 <Spec label="Seller" value={item.sellerName || '—'} />
                 <Spec label="Seller feedback" value={`${item.sellerFeedbackPercent}%`} />
                 <Spec label="Review score" value={item.score > 0 ? `${item.score}/100` : 'Not scored'} />
@@ -159,7 +159,7 @@ const PublicItem: React.FC = () => {
               <h2 className="text-xs uppercase tracking-[0.25em]">Curator’s note</h2>
               <p className="mt-4 text-sm text-muted leading-relaxed">
                 {item.description ||
-                  'A clean, well-presented listing. If you’d like a tighter condition assessment, we can request additional photos and serial/reference confirmation before dispatch.'}
+                  'This watch is listed by an external seller. Condition details are awaiting review, and availability must be confirmed before fulfillment.'}
               </p>
             </div>
 

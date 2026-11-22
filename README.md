@@ -16,21 +16,28 @@ and Supabase CLI access are working. The production API failure was traced to
 DNS lookup failure for the paused Supabase project `pvgqqmzuwepgwqudbbki`.
 Resuming that project restored database access.
 
-Production retains all **351 inventory rows, 119 logs and one settings row**.
-The eight published mock listings were unpublished; all 315 mock rows remain
-stored. The 11 remaining published items are watches with real eBay source
-references. RLS is enabled on the three existing tables, browser-role access
+Production retains all **351 original inventory rows, 119 original logs and its settings**.
+All 36 old real-source offers were confirmed ended, including the 11 that had
+been published. They were withdrawn without deleting their records or curation.
+Forty current offers passed individual eBay availability, price, shipping and
+seller checks and were imported unpublished, bringing production to 391 rows.
+Eight were published after a listing/image review and another source check;
+the other 32 remain drafts. Scores remain zero: source availability and image
+review do not establish physical condition or authenticity. All 315 mock rows
+remain unpublished. RLS is enabled on the three existing tables, browser-role access
 is revoked, and server access is preserved. Production still runs `b165b844`
 from 18 March 2026; **the production order migration has not been applied**.
 
 The isolated recovery preview is <https://mvw-recovery-preview.vercel.app>.
 It uses the separate Free Supabase project `aognusoolndwhmcprter`, containing
-36 real-source catalogue rows, 11 published. Its first Node 24 build reached
-Ready and `/api/health` returned 200 with inventory and order storage connected.
-Checkout is disabled and Stripe credentials are not configured. Browser flows,
-live webhook delivery and complete test payments have not yet been verified.
-The source observations date from 18 March and must be refreshed; a real eBay
-URL alone does not establish that a watch is still available.
+76 real-source catalogue rows after the same refresh. Its Node 24 functions
+connect to inventory and order storage; storefront and admin checks passed.
+Stripe sandbox credentials and a test snapshot webhook are configured only for
+this preview branch. Signature, timestamp and direct callback-routing checks
+passed before enabling test checkout. Real keys/events remain rejected in code.
+Sandbox payments consume only preview reservations and never buy from eBay.
+The validation procedure below covers the complete payment lifecycle; a healthy
+endpoint alone is not proof that a payment and its signed event were processed.
 
 The duplicate Vercel projects `modernvintagewatches-us88` and
 `modernvintagewatches-z9u1` initially returned empty inventory using the old
@@ -64,7 +71,7 @@ engine; they do not contact live Supabase, Stripe or eBay. The SQL tests validat
 transactional outcomes and permissions, but do not simulate independent database
 connections racing. Lock ordering has also been reviewed.
 
-The recorded local regression run passed 83/83 tests, and the recorded Vite
+The recorded local regression run passed 90/90 tests, and the recorded Vite
 production build passed. These are separate from deployed browser/payment checks.
 
 Copy `.env.example` to `.env.local` for local configuration. Server credentials
@@ -78,6 +85,10 @@ changes. Keep previews isolated from production data.
   Safe source fields refresh without overwriting concurrent editorial edits;
   sold/reserved records and newer observations remain protected. No database
   migration is required for this inventory fix alone.
+- Refresh checks every active stored source ID as well as the latest search
+  candidates. Confirmed ended offers are withdrawn; active offers outside policy
+  require review, and uncertain source responses do not masquerade as expiry.
+  New offers stay unpublished. Manual listing review is available without AI.
 - Missing persistence/eBay configuration fails closed. Temporary memory and mock
   inventory require explicit local-only opt-ins and are prohibited in production.
 - `/api/health` queries required inventory and order tables/columns and the order
@@ -123,9 +134,9 @@ project or an unavailable database.
 
 ## Isolated preview validation
 
-Database isolation, the preview migration and the initial deployment/health
-check are complete. The steps below remain the reproducible validation procedure;
-browser, source-refresh and Stripe test-flow checks still need completion.
+Database isolation, the preview migration, browser/admin checks, source refresh
+and webhook-routing checks are complete. The steps below are the reproducible
+validation procedure for further deployments and complete Stripe test payments.
 
 1. Confirm the intended Vercel project, production branch and Supabase project
    reference without disclosing secret values. Inspect the failing function's
@@ -147,7 +158,10 @@ browser, source-refresh and Stripe test-flow checks still need completion.
    `checkout.session.expired` and `checkout.session.async_payment_failed`.
    Configure its `whsec_...` secret and a test API key in the preview environment.
    Redeploy, then enable test checkout in that preview. Stripe must be able to
-   reach the endpoint despite any preview access protection.
+   reach the endpoint despite any preview access protection. For protected Vercel
+   previews, Stripe's private endpoint URL can include an automation-bypass token;
+   never put that credential in source control, public return URLs or client code.
+   Keep the Vercel protection setting and the application's signature check enabled.
 5. Re-import an already curated item and confirm identity/copy/publication survive.
    Generate and review a draft. Check the storefront's explicit error state and
    retries when the database is unavailable.
@@ -169,13 +183,12 @@ in Stripe at this stage.
 
 ## Remaining launch blockers, in order
 
-1. Refresh and verify the stale March eBay source inventory in the isolated
-   preview. Review availability, prices, shipping and descriptions before
-   treating the existing catalogue as sellable stock.
-2. Complete browser/admin checks and the Stripe test flow against the isolated
-   preview as above. The successful build and health response do not establish
-   webhook delivery or multi-session database concurrency. Keep checkout disabled
-   until the test credentials, endpoint and validation are ready.
+1. Keep source availability and prices current and complete physical-condition,
+   authenticity and accessory checks before promising fulfillment. The November
+   source refresh and listing/image review are not physical authentication.
+2. Exercise the isolated Stripe test flow above after material payment changes.
+   A successful build or health response does not establish webhook delivery or
+   concurrent checkout behavior. Never substitute the return page for signed events.
 3. Complete source-purchase tracking, fulfillment, reconciliation and a
    customer-visible cancellation/refund path. The implemented paid state waits
    for sourcing review. eBay availability checks cannot reserve another seller's
@@ -188,8 +201,8 @@ in Stripe at this stage.
    Plan the production order migration separately before promoting this recovery
    code. Live checkout remains blocked; no domain migration is part of this work.
 
-Production changes so far are limited to restoring the existing database,
-hardening access to its three tables and unpublishing the eight mock listings.
+Production changes so far are limited to restoring and hardening the database,
+withdrawing mock/ended listings, and importing/reviewing fresh source inventory.
 No production order migration, new production deployment or real payment has
 been performed.
 
