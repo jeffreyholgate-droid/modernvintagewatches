@@ -8,28 +8,33 @@ The recovery branch is **not ready to accept real orders**. Checkout defaults
 to disabled and permits test-mode keys only. Durable test orders, reservations
 and signed webhooks are implemented; live sourcing, refunds and pricing are not.
 
-## Recovery baseline — 22 November 2026
+## Current position — 22 November 2026
 
 Use Vercel project **modernvintagewatches**, with production alias
-<https://modernvintagewatches.vercel.app>, as the recovery target.
-All three existing Vercel projects reported deployments of `b165b844` (18 March
-2026). Public checks found:
+<https://modernvintagewatches.vercel.app>, as the recovery target. GitHub, Vercel
+and Supabase CLI access are working. The production API failure was traced to
+DNS lookup failure for the paused Supabase project `pvgqqmzuwepgwqudbbki`.
+Resuming that project restored database access.
 
-| Project | Existing `/api/health` | Existing `/api/items` |
-| --- | --- | --- |
-| modernvintagewatches | 200, persistent=true | 500 FUNCTION_INVOCATION_FAILED |
-| modernvintagewatches-us88 | 200, persistent=false | 200, empty items |
-| modernvintagewatches-z9u1 | 200, persistent=false | 200, empty items |
+Production retains all **351 inventory rows, 119 logs and one settings row**.
+The eight published mock listings were unpublished; all 315 mock rows remain
+stored. The 11 remaining published items are watches with real eBay source
+references. RLS is enabled on the three existing tables, browser-role access
+is revoked, and server access is preserved. Production still runs `b165b844`
+from 18 March 2026; **the production order migration has not been applied**.
 
-The main project is the only one that reports Supabase configuration. The two
-copies use the old ephemeral fallback; their empty results are not evidence of
-a working inventory database. The old health check only checked credential
-presence. This patch replaces it with actual schema/connectivity reads.
+The isolated recovery preview is <https://mvw-recovery-preview.vercel.app>.
+It uses the separate Free Supabase project `aognusoolndwhmcprter`, containing
+36 real-source catalogue rows, 11 published. Its first Node 24 build reached
+Ready and `/api/health` returned 200 with inventory and order storage connected.
+Checkout is disabled and Stripe credentials are not configured. Browser flows,
+live webhook delivery and complete test payments have not yet been verified.
+The source observations date from 18 March and must be refreshed; a real eBay
+URL alone does not establish that a watch is still available.
 
-Private Vercel configuration, Supabase project status, database contents and
-the underlying production error have not yet been inspected. Do not delete the
-duplicate projects or conclude that inventory has been lost. Historical
-deployment bookmarks can expire; use the stable alias above.
+The duplicate Vercel projects `modernvintagewatches-us88` and
+`modernvintagewatches-z9u1` initially returned empty inventory using the old
+ephemeral fallback. They are not the recovery target and have not been deleted.
 
 ## Development and verification
 
@@ -58,6 +63,9 @@ network boundaries and execute the order migration in PGlite, a local PostgreSQL
 engine; they do not contact live Supabase, Stripe or eBay. The SQL tests validate
 transactional outcomes and permissions, but do not simulate independent database
 connections racing. Lock ordering has also been reviewed.
+
+The recorded local regression run passed 83/83 tests, and the recorded Vite
+production build passed. These are separate from deployed browser/payment checks.
 
 Copy `.env.example` to `.env.local` for local configuration. Server credentials
 must stay server-side: never prefix them with `VITE_` or commit them. In Vercel,
@@ -115,6 +123,10 @@ project or an unavailable database.
 
 ## Isolated preview validation
 
+Database isolation, the preview migration and the initial deployment/health
+check are complete. The steps below remain the reproducible validation procedure;
+browser, source-refresh and Stripe test-flow checks still need completion.
+
 1. Confirm the intended Vercel project, production branch and Supabase project
    reference without disclosing secret values. Inspect the failing function's
    logs, database availability and environment scopes. Record inventory counts,
@@ -157,13 +169,13 @@ in Stripe at this stage.
 
 ## Remaining launch blockers, in order
 
-1. Confirm the primary project's Supabase reference and environment scopes;
-   inspect Vercel function logs, project availability, credentials and actual
-   items/settings/logs schema. Restore connectivity and verify row counts and
-   saved settings without overwriting inventory.
-2. Validate the migration and complete flow against an isolated preview and test
-   database as above. Local tests do not establish a working deployment, webhook
-   delivery, or multi-session database concurrency.
+1. Refresh and verify the stale March eBay source inventory in the isolated
+   preview. Review availability, prices, shipping and descriptions before
+   treating the existing catalogue as sellable stock.
+2. Complete browser/admin checks and the Stripe test flow against the isolated
+   preview as above. The successful build and health response do not establish
+   webhook delivery or multi-session database concurrency. Keep checkout disabled
+   until the test credentials, endpoint and validation are ready.
 3. Complete source-purchase tracking, fulfillment, reconciliation and a
    customer-visible cancellation/refund path. The implemented paid state waits
    for sourcing review. eBay availability checks cannot reserve another seller's
@@ -172,11 +184,14 @@ in Stripe at this stage.
    configured margins are not applied to the storefront/checkout. Source
    shipping, payment fees and the intended margin need explicit treatment before
    accepting money. No margin was silently invented in this patch.
-5. Complete product copy review, navigation/content and
-   end-to-end sales testing before enabling live checkout or migrating a domain.
+5. Complete product copy review, navigation/content and end-to-end sales testing.
+   Plan the production order migration separately before promoting this recovery
+   code. Live checkout remains blocked; no domain migration is part of this work.
 
-Production was not modified during this recovery work. A successful build is
-not evidence that production database access or an end-to-end sale works.
+Production changes so far are limited to restoring the existing database,
+hardening access to its three tables and unpublishing the eight mock listings.
+No production order migration, new production deployment or real payment has
+been performed.
 
 Historical Stripe sessions created before this patch have no MVW verification
 marker and will not be confirmed by the new return page. Check any such payment
