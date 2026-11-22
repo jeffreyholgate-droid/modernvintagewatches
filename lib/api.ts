@@ -104,3 +104,18 @@ export async function fetchLogs(limit = 50) {
   const { logs } = await request<{ logs: any[] }>(`/api/logs?limit=${limit}`, { method: 'GET' }, true);
   return logs;
 }
+
+export interface AdminOrderSummary {
+  id: string;
+  status: string;
+  totalPence: number;
+  currency: string;
+  createdAt: string;
+  stripeSessionId: string | null;
+  lines: Array<{ itemId: string; title: string; amountPence: number; sourceUrl: string; ebayItemId: string }>;
+}
+
+export async function fetchOrders(): Promise<AdminOrderSummary[]> {
+  const { orders } = await request<{ orders: AdminOrderSummary[] }>('/api/orders', { method: 'GET' }, true);
+  return orders;
+}

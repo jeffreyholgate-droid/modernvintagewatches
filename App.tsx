@@ -3,6 +3,7 @@ import React from 'react';
 import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminInventory from './pages/AdminInventory';
+import AdminOrders from './pages/AdminOrders';
 import PublicStore from './pages/PublicStore';
 import PublicItem from './pages/PublicItem';
 import SettingsPage from './pages/Settings';
@@ -39,6 +40,7 @@ const Navigation = () => {
               <div className="ml-10 flex items-baseline space-x-8">
                 <Link to="/admin" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin' ? 'text-amber-500' : 'text-stone-400'}`}>Dashboard</Link>
                 <Link to="/admin/inventory" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/inventory' ? 'text-amber-500' : 'text-stone-400'}`}>Curation Queue</Link>
+                <Link to="/admin/orders" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/orders' ? 'text-amber-500' : 'text-stone-400'}`}>Orders</Link>
                 <Link to="/admin/sync" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/sync' ? 'text-amber-500' : 'text-stone-400'}`}>Audit Logs</Link>
                 <Link to="/admin/settings" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/settings' ? 'text-amber-500' : 'text-stone-400'}`}>Settings</Link>
               </div>
@@ -104,6 +106,7 @@ const App: React.FC = () => {
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
             <Route path="/admin/inventory" element={<RequireAdmin><AdminInventory /></RequireAdmin>} />
+            <Route path="/admin/orders" element={<RequireAdmin><AdminOrders /></RequireAdmin>} />
             <Route path="/admin/sync" element={<RequireAdmin><SyncStatus /></RequireAdmin>} />
             <Route path="/admin/settings" element={<RequireAdmin><SettingsPage /></RequireAdmin>} />
           </Routes>

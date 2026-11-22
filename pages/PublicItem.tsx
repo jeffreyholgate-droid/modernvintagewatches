@@ -9,18 +9,31 @@ const PublicItem: React.FC = () => {
   const cart = useCart();
   const [item, setItem] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadedId, setLoadedId] = useState<string | undefined>(undefined);
+  const [loadError, setLoadError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
   const [checkoutError, setCheckoutError] = useState('');
 
   useEffect(() => {
     let alive = true;
+    setLoadedId(id);
+    setLoading(true);
+    setItem(null);
+    setLoadError('');
+    setCheckoutError('');
     (async () => {
       try {
         if (!id) return;
         const it = await fetchItem(id, false);
         if (alive) setItem(it);
-      } catch {
-        if (alive) setItem(null);
+      } catch (error: any) {
+        if (alive) {
+          setItem(null);
+          if (error?.status !== 404) {
+            setLoadError('We couldn’t load this watch right now. Please try again.');
+          }
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -28,7 +41,7 @@ const PublicItem: React.FC = () => {
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, attempt]);
 
   const title = useMemo(() => item?.titleBoutique || item?.titleRaw || 'Item', [item]);
   const image = useMemo(() => item?.imageUrls?.[0], [item]);
@@ -55,10 +68,25 @@ const PublicItem: React.FC = () => {
     }
   };
 
-  if (loading) {
+  // Hide a previous product immediately on navigation, before the effect runs.
+  if (loading || loadedId !== id) {
     return (
       <div className="bg-page min-h-screen pt-28 flex items-center justify-center">
         <p className="text-xs uppercase tracking-widest text-muted">Loading…</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="bg-page min-h-screen pt-28 flex items-center justify-center">
+        <div className="px-6 text-center">
+          <p role="alert" className="text-muted">{loadError}</p>
+          <button type="button" onClick={() => setAttempt(value => value + 1)} className="mt-6 text-sm underline">
+            Try again
+          </button>
+          <Link to="/" className="block mt-6 text-sm underline">Return to watches</Link>
+        </div>
       </div>
     );
   }

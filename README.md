@@ -5,7 +5,8 @@ Gemini-assisted description drafts and a guarded Stripe integration.
 
 The business sources watches from eBay after a customer places an order.
 The recovery branch is **not ready to accept real orders**. Checkout defaults
-to disabled and permits test-mode keys only while the order workflow is completed.
+to disabled and permits test-mode keys only. Durable test orders, reservations
+and signed webhooks are implemented; live sourcing, refunds and pricing are not.
 
 ## Recovery baseline — 22 November 2026
 
@@ -45,31 +46,45 @@ npm run dev
 Alternatively use `pnpm install --frozen-lockfile`, then the same scripts via
 `pnpm run`. Vite alone serves the frontend; it does not execute Vercel `/api`
 functions. Use a Vercel preview or the Vercel development runtime for integrated
-testing. Unit tests compile TypeScript into ignored `.test-build/` and mock
-external network boundaries; they do not contact live Supabase, Stripe or eBay.
+testing. Tests compile TypeScript into ignored `.test-build/`. They mock external
+network boundaries and execute the order migration in PGlite, a local PostgreSQL
+engine; they do not contact live Supabase, Stripe or eBay. The SQL tests validate
+transactional outcomes and permissions, but do not simulate independent database
+connections racing. Lock ordering has also been reviewed.
 
 Copy `.env.example` to `.env.local` for local configuration. Server credentials
 must stay server-side: never prefix them with `VITE_` or commit them. In Vercel,
 set the variables separately for the intended environments and redeploy after
 changes. Keep previews isolated from production data.
 
-## What the first recovery patch changes
+## What the recovery changes
 
 - Re-imports preserve identity, curated copy, publication state and scores.
   Safe source fields refresh without overwriting concurrent editorial edits;
   sold/reserved records and newer observations remain protected. No database
-  migration is required for this inventory fix.
+  migration is required for this inventory fix alone.
 - Missing persistence/eBay configuration fails closed. Temporary memory and mock
   inventory require explicit local-only opt-ins and are prohibited in production.
-- `/api/health` queries required tables/columns. Storefront inventory failures
+- `/api/health` queries required inventory and order tables/columns and the order
+  read RPC. A missing order migration returns `ORDER_STORAGE_UNAVAILABLE`.
+  Storefront inventory failures
   show an error and retry action instead of pretending the collection is empty.
 - Checkout uses database prices, validates unique item IDs and quantities, checks
   publication/source availability, and uses a configured redirect origin. Failed
   checkout does not clear the basket or pretend payment succeeded.
-- The return page verifies payment server-side before displaying payment status.
-  This is not a replacement for a signed webhook and durable order processing.
+- Orders snapshot the selected items and prices and reserve the whole basket
+  atomically. The same checkout key reuses the order and Stripe session on retries.
+  Reserved and sold items are excluded from the public catalogue.
+- Signed, raw-body Stripe webhooks process test events idempotently. A verified
+  paid event records `paid_awaiting_source`; an unpaid expiry releases only that
+  order's reservations. Mismatched or late payments require manual review. There
+  is no clock-only release that could allow another payment against the same item.
+- The return page verifies the linked payment server-side and labels test
+  payments clearly. An authenticated Orders screen shows sourcing references and
+  review status. No eBay purchase or dispatch occurs automatically.
 - AI output becomes a draft for human review. Imports no longer invent quality
-  scores. Vercel-parsed JSON request bodies are supported.
+  scores. Dashboard counts come from inventory, replacing invented health figures
+  and sales charts. Vercel-parsed JSON request bodies are supported.
 
 ## Configuration checklist
 
@@ -81,13 +96,57 @@ changes. Keep previews isolated from production data.
 | EBAY_ENV, EBAY_MARKETPLACE_ID | Source environment and market (production / EBAY_GB) |
 | GEMINI_API_KEY, GEMINI_MODEL | AI draft generation |
 | STRIPE_SECRET_KEY | Stripe test credentials for validation |
+| STRIPE_WEBHOOK_SECRET | Signing secret for this deployment's test-mode webhook endpoint |
 | PUBLIC_SITE_URL | Trusted HTTPS return origin for this deployment |
 | CHECKOUT_ENABLED | Test checkout switch; false by default, live keys rejected |
 | VITE_API_BASE | Optional frontend API origin; normally empty |
 
-`db/schema.sql` describes the existing inventory schema. Inspect the actual
-database and take a backup before applying any SQL. Never run schema setup just
-to conceal a wrong project or an unavailable database.
+`db/schema.sql` describes the existing inventory schema. `db/inspect.sql` provides
+a read-only schema/permission audit. Inspect the actual database and take a backup
+before applying a migration. Never run schema setup just to conceal a wrong
+project or an unavailable database.
+
+## Isolated preview validation
+
+1. Confirm the intended Vercel project, production branch and Supabase project
+   reference without disclosing secret values. Inspect the failing function's
+   logs, database availability and environment scopes. Record inventory counts,
+   publication states and existing settings before changing anything.
+2. Create an isolated test database or restored test copy. For a new empty test
+   database, apply `db/schema.sql` first. Against a verified compatible schema,
+   apply `db/migrations/20261122_orders.sql`. The migration is transactional and
+   also enables RLS on items/settings/logs and revokes browser-role access. The
+   server uses its service-role key. Review this change against any other clients
+   before applying it to an existing project. Standard Supabase roles are required.
+3. Deploy this branch as a preview with test database credentials, admin secrets,
+   valid eBay credentials and `CHECKOUT_ENABLED=false`. Set `PUBLIC_SITE_URL` to
+   that preview's trusted HTTPS origin. Verify `/api/health` reports both inventory
+   and orders connected, `/api/items` loads, and admin-only endpoints reject
+   unauthenticated requests. Confirm the webhook route is deployed successfully.
+4. In Stripe test mode, register `https://<preview-host>/api/stripe-webhook` for
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `checkout.session.expired` and `checkout.session.async_payment_failed`.
+   Configure its `whsec_...` secret and a test API key in the preview environment.
+   Redeploy, then enable test checkout in that preview. Stripe must be able to
+   reach the endpoint despite any preview access protection.
+5. Re-import an already curated item and confirm identity/copy/publication survive.
+   Generate and review a draft. Check the storefront's explicit error state and
+   retries when the database is unavailable.
+6. Exercise a test payment, cancellation, duplicate checkout click, network failure
+   after session creation, webhook replay, unpaid expiry and concurrent attempts
+   against one item. Check saved totals and reservation ownership in the database.
+   The return page must never substitute for webhook delivery. In Stripe, expire
+   a test session to exercise the verified expiry path; do not merely delete a
+   reservation. Review out-of-order events and the `payment_review` state.
+
+An unresolved session creation or attachment deliberately keeps stock reserved.
+Reconcile it with Stripe using the order ID in metadata before taking manual
+action. Attempts older than 23 hours without a saved session require review,
+because Stripe may eventually discard its idempotency key. A `payment_review`
+order may already have been paid: never treat that status as permission to charge
+again or release stock. This recovery build has no administrative release/refund
+button. It stores minimal payment-event evidence; customer delivery details stay
+in Stripe at this stage.
 
 ## Remaining launch blockers, in order
 
@@ -95,19 +154,18 @@ to conceal a wrong project or an unavailable database.
    inspect Vercel function logs, project availability, credentials and actual
    items/settings/logs schema. Restore connectivity and verify row counts and
    saved settings without overwriting inventory.
-2. Validate the patch against an isolated preview and test database. Exercise
-   a rescan against already curated inventory, draft review, unavailable sources,
-   tampered prices and Stripe test-mode failures.
-3. Implement durable orders, signed/idempotent Stripe webhook handling, unique
-   item reservations and expiry, source-purchase/manual review states, and a
-   customer-visible cancellation/refund path. eBay availability checks cannot
-   reserve another seller's inventory. Do not automate source purchases without
-   an explicit transaction workflow.
+2. Validate the migration and complete flow against an isolated preview and test
+   database as above. Local tests do not establish a working deployment, webhook
+   delivery, or multi-session database concurrency.
+3. Complete source-purchase tracking, fulfillment, reconciliation and a
+   customer-visible cancellation/refund path. The implemented paid state waits
+   for sourcing review. eBay availability checks cannot reserve another seller's
+   inventory. Do not automate source purchases without an explicit workflow.
 4. Define the retail pricing policy. `price_gbp` is currently the source price;
    configured margins are not applied to the storefront/checkout. Source
    shipping, payment fees and the intended margin need explicit treatment before
    accepting money. No margin was silently invented in this patch.
-5. Complete product copy review, real dashboard metrics, navigation/content and
+5. Complete product copy review, navigation/content and
    end-to-end sales testing before enabling live checkout or migrating a domain.
 
 Production was not modified during this recovery work. A successful build is

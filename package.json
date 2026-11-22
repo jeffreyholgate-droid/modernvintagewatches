@@ -21,6 +21,7 @@
     "stripe": "^14.25.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.17",
     "@types/node": "^20.11.30",
     "@vitejs/plugin-react": "4.6.0",
     "typescript": "^5.4.5",

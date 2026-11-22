@@ -1,9 +1,11 @@
 import { json, methodNotAllowed, readJson } from './_lib/respond.js';
 import { getItemById } from './_lib/db.js';
 import { EbayClient } from '../server/ebay.js';
+import { attachCheckoutSession, getOrderByCheckoutKey, getOrderById, reserveOrder } from './_lib/orders.js';
+import { linkedPaymentStatus, startOrderCheckout } from './_lib/checkout-order.js';
 import {
   authoritativeLines, CHECKOUT_MARKER, checkoutConfiguration,
-  CheckoutError, parseCheckoutLines, paymentStatus,
+  CheckoutError, parseCheckoutKey, parseCheckoutLines,
 } from './_lib/checkout.js';
 
 export default async function handler(req: any, res: any) {
@@ -21,7 +23,12 @@ export default async function handler(req: any, res: any) {
       const Stripe = (await import('stripe')).default;
       const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      return json(res, 200, paymentStatus(session));
+      if (session.metadata?.checkout_origin !== CHECKOUT_MARKER || !session.metadata?.order_id) {
+        return json(res, 404, { error: 'SESSION_NOT_FOUND' });
+      }
+      const order = await getOrderById(session.metadata.order_id);
+      if (!order) return json(res, 404, { error: 'SESSION_NOT_FOUND' });
+      return json(res, 200, linkedPaymentStatus(session, order));
     }
 
     const { stripeKey, origin } = checkoutConfiguration(process.env);
@@ -29,27 +36,38 @@ export default async function handler(req: any, res: any) {
     try { body = await readJson(req); }
     catch { return json(res, 400, { error: 'INVALID_JSON' }); }
     const lines = parseCheckoutLines(body);
+    const checkoutKey = parseCheckoutKey(body);
     const ebay = new EbayClient();
-    const lineItems = await authoritativeLines(lines, {
-      getItem: getItemById,
-      getSourceOffer: (id) => ebay.getPurchasableItem(id),
-    });
     const Stripe = (await import('stripe')).default;
     const stripe = new Stripe(stripeKey);
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      success_url: `${origin}/#/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/#/checkout/cancel`,
-      line_items: lineItems,
-      metadata: { checkout_origin: CHECKOUT_MARKER },
-      customer_creation: 'if_required',
+    const checkout = await startOrderCheckout({ checkoutKey, origin, lines }, {
+      getOrderByCheckoutKey,
+      reserveOrder,
+      attachCheckoutSession,
+      quote: async (requested) => {
+        const quoted = await authoritativeLines(requested, {
+          getItem: getItemById,
+          getSourceOffer: (id) => ebay.getPurchasableItem(id),
+        });
+        return quoted.map((line) => ({
+          itemId: line.price_data.product_data.metadata.item_id,
+          amountPence: line.price_data.unit_amount,
+        }));
+      },
+      createSession: (params, idempotencyKey) => stripe.checkout.sessions.create(params, { idempotencyKey }),
+      retrieveSession: (id) => stripe.checkout.sessions.retrieve(id),
     });
-    if (!session.url) throw new CheckoutError('CHECKOUT_UNAVAILABLE', 503);
-    return json(res, 200, { url: session.url, id: session.id });
+    return json(res, 200, checkout);
   } catch (error: any) {
     if (error instanceof CheckoutError) return json(res, error.status, { error: error.code });
     if (req.method === 'GET' && error?.code === 'resource_missing') {
       return json(res, 404, { error: 'SESSION_NOT_FOUND' });
+    }
+    if (['ITEM_UNAVAILABLE', 'ITEM_CHANGED', 'CHECKOUT_KEY_REUSED'].includes(error?.code)) {
+      return json(res, 409, { error: error.code });
+    }
+    if (['SESSION_CONFLICT', 'ORDER_UNAVAILABLE'].includes(error?.code)) {
+      return json(res, 409, { error: 'CHECKOUT_REVIEW_REQUIRED' });
     }
     // Provider errors may contain credentials or customer details. Never return them.
     return json(res, 503, { error: 'CHECKOUT_UNAVAILABLE' });

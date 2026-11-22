@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkDatabase, getItemById, isPersistent, upsertItems, type AppStateItem } from '../api/_lib/db.js';
+import { checkDatabase, getItemById, isPersistent, listItems, upsertItems, type AppStateItem } from '../api/_lib/db.js';
 import { Category, PublishState } from '../types.js';
 
 function observation(overrides: Partial<AppStateItem> = {}): AppStateItem {
@@ -203,4 +203,17 @@ test('database health rejects an incompatible schema without leaking provider er
       await assert.rejects(checkDatabase(), { message: 'DATABASE_UNAVAILABLE' });
     });
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('public inventory excludes reserved and sold listings even while the publication flag remains set', async () => {
+  await withEnvironment({ ALLOW_IN_MEMORY_DB: 'true', NODE_ENV: 'development' }, async () => {
+    for (const status of ['ACTIVE', 'RESERVED', 'SOLD']) {
+      await upsertItems([observation({ id: `visibility-${status}`, ebayItemId: `visibility-${status}`, status, publishStatus: PublishState.PUBLISHED })]);
+    }
+    const publicIds = (await listItems({ publishedOnly: true })).map(value => value.id);
+    assert.ok(publicIds.includes('visibility-ACTIVE'));
+    assert.equal(publicIds.includes('visibility-RESERVED'), false);
+    assert.equal(publicIds.includes('visibility-SOLD'), false);
+    assert.ok((await listItems({ publishedOnly: false })).some(value => value.id === 'visibility-RESERVED'));
+  });
 });

@@ -10,6 +10,14 @@ export class CheckoutError extends Error {
 
 export type CheckoutLine = { id: string; qty: 1 };
 
+export function parseCheckoutKey(body: unknown): string {
+  const key = (body as { checkoutKey?: unknown } | null)?.checkoutKey;
+  if (typeof key !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) {
+    throw new CheckoutError('INVALID_CHECKOUT_KEY', 400);
+  }
+  return key.toLowerCase();
+}
+
 export function parseCheckoutLines(body: unknown): CheckoutLine[] {
   const lines = (body as { lines?: unknown } | null)?.lines;
   if (!Array.isArray(lines) || lines.length === 0 || lines.length > 20) {
@@ -29,10 +37,11 @@ export function parseCheckoutLines(body: unknown): CheckoutLine[] {
 
 export function checkoutConfiguration(env: Record<string, string | undefined>) {
   if (env.CHECKOUT_ENABLED !== 'true') throw new CheckoutError('CHECKOUT_UNAVAILABLE', 503);
-  if (!env.STRIPE_SECRET_KEY || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!env.STRIPE_SECRET_KEY || !env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY ||
+      !env.STRIPE_WEBHOOK_SECRET?.startsWith('whsec_') || /\s/.test(env.STRIPE_WEBHOOK_SECRET)) {
     throw new CheckoutError('CHECKOUT_UNAVAILABLE', 503);
   }
-  // Live payments stay blocked until orders, sourcing and fulfillment are implemented.
+  // Live payments stay blocked until pricing, sourcing/refunds and the full flow are validated.
   if (!/^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY)) {
     throw new CheckoutError('CHECKOUT_UNAVAILABLE', 503);
   }

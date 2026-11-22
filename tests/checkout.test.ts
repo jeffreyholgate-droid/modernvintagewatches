@@ -2,15 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   authoritativeLines, CHECKOUT_MARKER, checkoutConfiguration,
-  CheckoutError, parseCheckoutLines, paymentStatus,
+  CheckoutError, parseCheckoutKey, parseCheckoutLines, paymentStatus,
 } from '../api/_lib/checkout.js';
-import { requestCheckout, checkoutErrorMessage } from '../lib/checkout.js';
+import { requestCheckout, checkoutErrorMessage, checkoutAttemptKey, type CheckoutAttemptStorage } from '../lib/checkout.js';
 import type { AppStateItem } from '../api/_lib/db.js';
 import checkoutHandler from '../api/checkout.js';
 
 const configured = {
   CHECKOUT_ENABLED: 'true',
   STRIPE_SECRET_KEY: 'sk_test_fixture',
+  STRIPE_WEBHOOK_SECRET: 'whsec_fixture',
   SUPABASE_URL: 'https://fixture.supabase.co',
   SUPABASE_SERVICE_ROLE_KEY: 'test-only-key',
   PUBLIC_SITE_URL: 'https://shop.example',
@@ -24,6 +25,10 @@ const deps = (overrides: Partial<AppStateItem> = {}) => ({
   getItem: async () => ({ ...item, ...overrides }),
   getSourceOffer: async () => ({ priceGbp: 2500.25, shippingGbp: 10 }),
 });
+function storage(): CheckoutAttemptStorage {
+  const values = new Map<string, string>();
+  return { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: (key) => { values.delete(key); } };
+}
 
 test('checkout is disabled by default and fails closed for every missing required setting', () => {
   for (const field of Object.keys(configured).filter((name) => name !== 'NODE_ENV')) {
@@ -80,6 +85,14 @@ test('unique one-off stock rejects duplicate IDs, invalid quantities and malform
   for (const body of invalid) assert.throws(() => parseCheckoutLines(body), CheckoutError);
 });
 
+test('checkout requests require a valid opaque UUID retry key', () => {
+  const key = 'b329421e-868e-436c-9682-ea68fc086d97';
+  assert.equal(parseCheckoutKey({ checkoutKey: key.toUpperCase() }), key);
+  for (const value of [undefined, '', 2, 'watch-1', key + 'x']) {
+    assert.throws(() => parseCheckoutKey({ checkoutKey: value }), CheckoutError);
+  }
+});
+
 test('tampered browser price and title cannot control Stripe line items', async () => {
   const requested = parseCheckoutLines({ lines: [{ id: 'watch-1', qty: 1, priceGbp: 0.01, title: 'Forged' }] });
   const actual = await authoritativeLines(requested, deps());
@@ -122,13 +135,13 @@ test('a success URL alone cannot confirm payment; only a paid complete MVW sessi
 
 test('frontend rejects failed responses, missing redirect URLs and unsafe redirects', async () => {
   const responses = [
-    new Response(JSON.stringify({ url: 'https://checkout.stripe.com/pay' }), { status: 500 }),
+    new Response(JSON.stringify({ id: 'cs_test_fixture', status: 'open', url: 'https://checkout.stripe.com/pay' }), { status: 500 }),
     new Response(JSON.stringify({ ok: true, configured: false })),
     new Response('not-json'),
-    ...['javascript:alert(1)', 'https://checkout.stripe.com.evil.example/pay', 'https://evil.example/', 'http://checkout.stripe.com/pay'].map((url) => new Response(JSON.stringify({ url }))),
+    ...['javascript:alert(1)', 'https://checkout.stripe.com.evil.example/pay', 'https://evil.example/', 'http://checkout.stripe.com/pay'].map((url) => new Response(JSON.stringify({ id: 'cs_test_fixture', status: 'open', url }))),
   ];
   for (const response of responses) {
-    await assert.rejects(requestCheckout([{ id: 'watch-1', qty: 1 }], async () => response));
+    await assert.rejects(requestCheckout([{ id: 'watch-1', qty: 1 }], async () => response, storage()));
   }
 });
 
@@ -136,9 +149,51 @@ test('frontend sends only identifiers and quantity, accepts only a successful St
   let payload: any;
   const result = await requestCheckout([{ id: 'watch-1', qty: 1, priceGbp: 0.01 } as any], async (_url, options) => {
     payload = JSON.parse(String(options?.body));
-    return new Response(JSON.stringify({ url: 'https://checkout.stripe.com/c/pay/cs_test_fixture' }));
-  });
-  assert.deepEqual(payload, { lines: [{ id: 'watch-1', qty: 1 }] });
+    return new Response(JSON.stringify({ id: 'cs_test_fixture', status: 'open', url: 'https://checkout.stripe.com/c/pay/cs_test_fixture' }));
+  }, storage());
+  assert.deepEqual(payload.lines, [{ id: 'watch-1', qty: 1 }]);
+  assert.equal(parseCheckoutKey(payload), payload.checkoutKey);
   assert.equal(result, 'https://checkout.stripe.com/c/pay/cs_test_fixture');
   assert.match(checkoutErrorMessage(new Error('private provider detail')), /currently unavailable/);
+});
+
+test('browser retry key remains stable for the same basket regardless of display order', () => {
+  const attempts = storage();
+  const first = checkoutAttemptKey([{ id: 'watch-2', qty: 1 }, { id: 'watch-1', qty: 1 }], attempts);
+  assert.equal(checkoutAttemptKey([{ id: 'watch-1', qty: 1 }, { id: 'watch-2', qty: 1 }], attempts), first);
+  assert.notEqual(checkoutAttemptKey([{ id: 'watch-1', qty: 1 }], attempts), first);
+});
+
+test('ambiguous network or server failures preserve the browser retry key', async () => {
+  const attempts = storage();
+  const lines = [{ id: 'watch-1', qty: 1 }];
+  const key = checkoutAttemptKey(lines, attempts);
+  await assert.rejects(requestCheckout(lines, async () => { throw new Error('connection lost'); }, attempts));
+  assert.equal(checkoutAttemptKey(lines, attempts), key);
+  await assert.rejects(requestCheckout(lines, async () => new Response(JSON.stringify({ error: 'CHECKOUT_UNAVAILABLE' }), { status: 503 }), attempts));
+  assert.equal(checkoutAttemptKey(lines, attempts), key);
+});
+
+test('only confirmed expiration retires a browser retry key for the next user action', async () => {
+  const attempts = storage();
+  const lines = [{ id: 'watch-1', qty: 1 }];
+  const key = checkoutAttemptKey(lines, attempts);
+  await assert.rejects(requestCheckout(lines, async () => new Response(JSON.stringify({ error: 'CHECKOUT_EXPIRED' }), { status: 409 }), attempts));
+  assert.notEqual(checkoutAttemptKey(lines, attempts), key);
+});
+
+test('browser never starts checkout if it cannot persist the retry key', async () => {
+  let requests = 0;
+  const attempts = { ...storage(), setItem: () => { throw new Error('storage unavailable'); } };
+  await assert.rejects(requestCheckout([{ id: 'watch-1', qty: 1 }], async () => {
+    requests++;
+    return new Response('{}');
+  }, attempts));
+  assert.equal(requests, 0);
+});
+
+test('retry of a completed session opens payment verification without starting another payment', async () => {
+  const result = await requestCheckout([{ id: 'watch-1', qty: 1 }], async () =>
+    new Response(JSON.stringify({ id: 'cs_test_fixture', status: 'complete' })), storage());
+  assert.equal(result, '/#/checkout/success?session_id=cs_test_fixture');
 });

@@ -110,10 +110,10 @@ export async function saveSettings(next: Settings): Promise<void> {
 export async function listItems(opts: { publishedOnly: boolean }): Promise<AppStateItem[]> {
   const supabase = getSupabase();
   if (!supabase) {
-    return (opts.publishedOnly ? mem.items.filter(i => i.publishStatus === PublishState.PUBLISHED) : mem.items);
+    return (opts.publishedOnly ? mem.items.filter(i => i.publishStatus === PublishState.PUBLISHED && i.status === 'ACTIVE') : mem.items);
   }
   let q = supabase.from('items').select('*').order('last_seen_at', { ascending: false });
-  if (opts.publishedOnly) q = q.eq('publish_state', PublishState.PUBLISHED);
+  if (opts.publishedOnly) q = q.eq('publish_state', PublishState.PUBLISHED).eq('status', 'ACTIVE');
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map(rowToItem);
