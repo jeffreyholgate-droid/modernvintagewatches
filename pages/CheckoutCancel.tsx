@@ -7,7 +7,7 @@ const CheckoutCancel: React.FC = () => {
       <div className="max-w-3xl mx-auto px-6">
         <h1 className="text-2xl tracking-tight">Checkout cancelled</h1>
         <p className="mt-4 text-muted leading-relaxed">
-          Your payment wasn’t completed. Your items are still in your bag.
+          Your payment wasn’t completed. Return to your bag or continue shopping.
         </p>
         <div className="mt-8 flex gap-6">
           <Link to="/bag" className="text-sm underline">Return to bag</Link>
