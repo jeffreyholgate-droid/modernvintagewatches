@@ -7,9 +7,13 @@ import { runCurate, patchItem } from '../lib/api';
 const AdminInventory: React.FC = () => {
   const [items, setItems] = useState<AppStateItem[]>([]);
   const [processingState, setProcessingState] = useState<Record<string, string | null>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [review, setReview] = useState<{ item: AppStateItem; title: string; description: string } | null>(null);
+  const [saving, setSaving] = useState(false);
   useEffect(() => {
     const init = async () => {
-      try { await globalStore.refresh({ admin: true }); } catch {}
+      try { await globalStore.refresh({ admin: true }); }
+      catch { setError('Inventory could not be loaded. Check the connection and try again.'); }
     };
     init();
     setItems(globalStore.getItems());
@@ -19,23 +23,39 @@ const AdminInventory: React.FC = () => {
   const handleExecuteWorkflow = async (item: AppStateItem) => {
     const id = item.id;
     try {
-      setProcessingState(prev => ({ ...prev, [id]: 'AI NORMALIZING...' }));
-      setProcessingState(prev => ({ ...prev, [id]: 'AGENT WORKING...' }));
+      setError(null);
+      setProcessingState(prev => ({ ...prev, [id]: 'Generating draft…' }));
       await runCurate(id);
       await globalStore.refresh({ admin: true });
 
       setProcessingState(prev => ({ ...prev, [id]: null }));
     } catch (err) {
       console.error(err);
-      setProcessingState(prev => ({ ...prev, [id]: 'AI ERROR - RETRYING...' }));
-      setTimeout(() => setProcessingState(prev => ({ ...prev, [id]: null })), 2000);
+      setError('The draft could not be generated. Please try again.');
+      setProcessingState(prev => ({ ...prev, [id]: null }));
     }
   };
 
   const handleWithdraw = (id: string) => {
     patchItem(id, { publishStatus: PublishState.UNPUBLISHED })
       .then(() => globalStore.refresh({ admin: true }))
-      .catch(() => {});
+      .catch(() => setError('The listing could not be withdrawn. Please try again.'));
+  };
+
+  const saveReview = async (publish: boolean) => {
+    if (!review || !review.title.trim() || !review.description.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await patchItem(review.item.id, {
+        titleBoutique: review.title.trim(), description: review.description.trim(),
+        publishStatus: publish ? PublishState.PUBLISHED : PublishState.DRAFT,
+      });
+      await globalStore.refresh({ admin: true });
+      setReview(null);
+    } catch {
+      setError('Your changes could not be saved. The review is still open.');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -46,6 +66,8 @@ const AdminInventory: React.FC = () => {
           <p className="text-stone-500 text-sm">Reviewing {items.length} Discoveries</p>
         </div>
       </div>
+
+      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
 
       <div className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm">
         <table className="min-w-full divide-y divide-stone-200">
@@ -66,30 +88,41 @@ const AdminInventory: React.FC = () => {
                   <div className="text-[9px] text-amber-600 font-bold uppercase tracking-widest mt-1">{item.sellerName}</div>
                 </td>
                 <td className="px-6 py-4">
-                  {item.publishStatus === PublishState.PUBLISHED ? (
+                  {item.titleBoutique ? (
                     <div className="space-y-1">
                       <div className="font-bold text-stone-900">{item.titleBoutique}</div>
                       <div className="flex space-x-2">
-                        <span className="text-[8px] bg-emerald-50 text-emerald-600 border border-emerald-100 px-1 rounded uppercase font-bold">Verified</span>
+                        <span className="text-[9px] border border-stone-200 px-1 rounded uppercase font-bold">
+                          {item.publishStatus === PublishState.PUBLISHED ? 'Published' : 'Draft — review needed'}
+                        </span>
                       </div>
                     </div>
                   ) : (
-                    <div className="text-stone-300 italic text-[11px]">Awaiting Agent Normalization...</div>
+                    <div className="text-stone-500 italic text-[11px]">Awaiting draft</div>
                   )}
                 </td>
                 <td className="px-6 py-4">
-                   <span className="font-mono font-bold text-amber-600">{item.score}</span>
+                   <span className="font-mono font-bold text-amber-600">{item.score || 'Unreviewed'}</span>
                 </td>
                 <td className="px-6 py-4 font-medium text-stone-900">£{item.priceGbp.toLocaleString()}</td>
                 <td className="px-6 py-4 text-right">
                   {item.publishStatus !== PublishState.PUBLISHED ? (
+                    <div className="flex flex-col items-end gap-2">
+                    {item.titleBoutique && item.description && (
+                      <button
+                        onClick={() => { setError(null); setReview({ item, title: item.titleBoutique || '', description: item.description || '' }); }}
+                        disabled={!!processingState[item.id]}
+                        className="border border-stone-900 px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest disabled:opacity-50"
+                      >Review &amp; publish</button>
+                    )}
                     <button 
                       onClick={() => handleExecuteWorkflow(item)}
                       disabled={!!processingState[item.id]}
                       className="bg-stone-900 text-white px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-amber-600 transition shadow-md disabled:opacity-50 min-w-[140px]"
                     >
-                      {processingState[item.id] || 'Execute AI Workflow'}
+                      {processingState[item.id] || (item.titleBoutique ? 'Regenerate draft' : 'Generate draft')}
                     </button>
+                    </div>
                   ) : (
                     <button 
                       onClick={() => handleWithdraw(item.id)}
@@ -104,6 +137,28 @@ const AdminInventory: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {review && (
+        <div role="dialog" aria-modal="true" aria-labelledby="review-title" className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white p-6 rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto space-y-4">
+            <h2 id="review-title" className="text-xl font-semibold">Review listing before publication</h2>
+            <p className="text-sm text-stone-600">Check the title, condition, reference and any authenticity claims against the source. AI text has not been verified.</p>
+            <a href={review.item.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">Open source listing</a>
+            <label className="block text-sm">Title
+              <input value={review.title} onChange={e => setReview({ ...review, title: e.target.value })} className="block w-full border border-stone-300 p-2 mt-1" />
+            </label>
+            <label className="block text-sm">Description
+              <textarea value={review.description} onChange={e => setReview({ ...review, description: e.target.value })} rows={10} className="block w-full border border-stone-300 p-2 mt-1" />
+            </label>
+            {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+            <div className="flex flex-wrap gap-3">
+              <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(true)} className="bg-stone-900 text-white px-4 py-2 rounded disabled:opacity-50">Publish reviewed listing</button>
+              <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(false)} className="border border-stone-300 px-4 py-2 rounded disabled:opacity-50">Save draft</button>
+              <button disabled={saving} onClick={() => setReview(null)} className="px-4 py-2">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

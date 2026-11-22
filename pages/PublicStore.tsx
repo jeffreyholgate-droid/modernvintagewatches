@@ -10,9 +10,16 @@ const PublicStore: React.FC = () => {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortMode>('NEWEST');
   const [items, setItems] = useState<AppStateItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setLoadError(false);
     const updateItems = () => {
+      if (!alive) return;
       const all = globalStore.getItems();
       setItems(all.filter((i) => i.publishStatus === PublishState.PUBLISHED));
     };
@@ -20,12 +27,15 @@ const PublicStore: React.FC = () => {
       try {
         await globalStore.refresh({ admin: false });
       } catch {
-        // ignore
+        if (alive) setLoadError(true);
+      } finally {
+        if (alive) setLoading(false);
       }
       updateItems();
     })();
-    return globalStore.subscribe(updateItems);
-  }, []);
+    const unsubscribe = globalStore.subscribe(updateItems);
+    return () => { alive = false; unsubscribe(); };
+  }, [retry]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -109,11 +119,16 @@ const PublicStore: React.FC = () => {
 
       {/* Grid */}
       <section className="max-w-7xl mx-auto px-6 pb-20">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <p className="py-24 text-muted" role="status">Loading watches…</p>
+        ) : loadError ? (
+          <div className="py-24" role="alert">
+            <p className="text-muted">We couldn’t load the collection. Please try again.</p>
+            <button onClick={() => setRetry(value => value + 1)} className="mt-6 text-sm underline">Try again</button>
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="py-24">
-            <p className="text-muted">No published items yet.</p>
-            <p className="mt-3 text-sm text-muted">If you’re the owner, curate and publish inventory in the Admin panel.</p>
-            <Link to="/admin" className="inline-block mt-6 text-sm underline">Go to Admin</Link>
+            <p className="text-muted">{items.length ? 'No watches match your search.' : 'Our collection is being prepared. Please check back soon.'}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-12">

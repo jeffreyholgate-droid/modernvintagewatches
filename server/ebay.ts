@@ -14,6 +14,17 @@ type EbayBrowseItem = {
   additionalImages?: Array<{ imageUrl?: string }>;
   price?: { value?: string; currency?: string };
   currentBidPrice?: { value?: string; currency?: string };
+  itemEndDate?: string;
+  estimatedAvailabilities?: Array<{
+    estimatedAvailabilityStatus?: string;
+    estimatedAvailableQuantity?: number;
+    deliveryOptions?: string[];
+  }>;
+  shippingOptions?: Array<{
+    shippingCostType?: string;
+    shippingCost?: { value?: string; currency?: string };
+    shipToLocationUsedForEstimate?: { country?: string };
+  }>;
   itemLocation?: {
     country?: string;
     postalCode?: string;
@@ -31,14 +42,64 @@ type EbayOAuthResponse = {
   token_type: string;
 };
 
+export type PurchasableEbayItem = { priceGbp: number; shippingGbp: number };
+
+function gbpAmount(amount?: { value?: string; currency?: string }): number | null {
+  if (amount?.currency !== 'GBP' || typeof amount.value !== 'string' ||
+      !/^\d+(?:\.\d{1,2})?$/.test(amount.value)) return null;
+  const value = Number(amount.value);
+  return Number.isSafeInteger(Math.round(value * 100)) ? value : null;
+}
+
+function fixedShippingGbp(item: EbayBrowseItem): number | null {
+  const costs = (Array.isArray(item.shippingOptions) ? item.shippingOptions : [])
+    .filter(option => option.shippingCostType === 'FIXED' &&
+      (!option.shipToLocationUsedForEstimate?.country || option.shipToLocationUsedForEstimate.country === 'GB'))
+    .map(option => gbpAmount(option.shippingCost))
+    .filter((cost): cost is number => cost !== null);
+  return costs.length ? Math.min(...costs) : null;
+}
+
+/** A fresh estimate, not an eBay reservation or a guarantee of eventual purchase. */
+export function evaluatePurchasableItem(item: EbayBrowseItem, expectedId: string, now = Date.now()): PurchasableEbayItem | null {
+  if (item?.itemId !== expectedId) throw new Error('EBAY_ITEM_EVIDENCE_INVALID');
+  if (item.itemEndDate) {
+    const end = Date.parse(item.itemEndDate);
+    if (!Number.isFinite(end)) throw new Error('EBAY_ITEM_EVIDENCE_INVALID');
+    if (end <= now) return null;
+  }
+  if (!Array.isArray(item.buyingOptions) || !item.price || !item.itemLocation?.country) {
+    throw new Error('EBAY_ITEM_EVIDENCE_INCOMPLETE');
+  }
+  if (!item.buyingOptions.includes('FIXED_PRICE') || item.price.currency !== 'GBP' || item.itemLocation.country !== 'GB') return null;
+  const priceGbp = gbpAmount(item.price);
+  if (priceGbp === null || priceGbp <= 0) throw new Error('EBAY_ITEM_PRICE_INVALID');
+
+  const availability = Array.isArray(item.estimatedAvailabilities) ? item.estimatedAvailabilities : [];
+  const shippable = availability.filter(a => a.deliveryOptions?.includes('SHIP_TO_HOME'));
+  const available = shippable.some(a =>
+    ['IN_STOCK', 'LIMITED_STOCK'].includes(a.estimatedAvailabilityStatus || '') &&
+    (a.estimatedAvailableQuantity === undefined || (Number.isFinite(a.estimatedAvailableQuantity) && a.estimatedAvailableQuantity > 0)));
+  if (!available) {
+    if (availability.length && availability.every(a => a.estimatedAvailabilityStatus === 'OUT_OF_STOCK' || a.estimatedAvailableQuantity === 0)) return null;
+    throw new Error('EBAY_ITEM_AVAILABILITY_UNKNOWN');
+  }
+  const shippingGbp = fixedShippingGbp(item);
+  if (shippingGbp === null) throw new Error('EBAY_ITEM_SHIPPING_UNKNOWN');
+  return { priceGbp, shippingGbp };
+}
+
 export class EbayClient {
   private mode: 'REAL' | 'MOCK';
 
   constructor() {
-    this.mode =
-      process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET
-        ? 'REAL'
-        : 'MOCK';
+    if (process.env.EBAY_CLIENT_ID && process.env.EBAY_CLIENT_SECRET) {
+      this.mode = 'REAL';
+    } else if (process.env.ALLOW_MOCK_EBAY === 'true' && !process.env.VERCEL && process.env.NODE_ENV !== 'production') {
+      this.mode = 'MOCK';
+    } else {
+      throw new Error('Missing EBAY_CLIENT_ID or EBAY_CLIENT_SECRET');
+    }
   }
 
   async searchItems(category: Category, priceMin: number, priceMax: number): Promise<EbayItem[]> {
@@ -75,6 +136,7 @@ export class EbayClient {
     url.searchParams.set('category_ids', '31387');
 
     const response = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(10000),
       headers: {
         Authorization: `Bearer ${token}`,
         'X-EBAY-C-MARKETPLACE-ID': marketplaceId,
@@ -83,8 +145,7 @@ export class EbayClient {
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`eBay Browse search failed: ${response.status} ${text}`);
+      throw new Error(`eBay Browse search failed: ${response.status}`);
     }
 
     const json = (await response.json()) as EbayBrowseSearchResponse;
@@ -97,7 +158,27 @@ export class EbayClient {
   }
 
   async verifyItem(itemId: string): Promise<boolean> {
-    return Math.random() > 0.1;
+    return (await this.getPurchasableItem(itemId)) !== null;
+  }
+
+  async getPurchasableItem(itemId: string): Promise<PurchasableEbayItem | null> {
+    // Mock listings may be explored locally, but must never be treated as purchasable.
+    if (this.mode !== 'REAL') throw new Error('EBAY_REAL_SOURCE_REQUIRED');
+    if (!/^v1\|\d+\|\d+$/.test(itemId)) throw new Error('EBAY_ITEM_ID_INVALID');
+    const token = await this.getAccessToken();
+    const baseUrl = (process.env.EBAY_ENV || 'production').toLowerCase() === 'sandbox'
+      ? 'https://api.sandbox.ebay.com' : 'https://api.ebay.com';
+    const response = await fetch(`${baseUrl}/buy/browse/v1/item/${encodeURIComponent(itemId)}`, {
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-EBAY-C-MARKETPLACE-ID': process.env.EBAY_MARKETPLACE_ID || 'EBAY_GB',
+        Accept: 'application/json',
+      },
+    });
+    if (response.status === 404 || response.status === 410) return null;
+    if (!response.ok) throw new Error(`eBay Browse item lookup failed: ${response.status}`);
+    return evaluatePurchasableItem(await response.json() as EbayBrowseItem, itemId);
   }
 
   private async getAccessToken(): Promise<string> {
@@ -121,6 +202,7 @@ export class EbayClient {
     });
 
     const response = await fetch(`${baseUrl}/identity/v1/oauth2/token`, {
+      signal: AbortSignal.timeout(10000),
       method: 'POST',
       headers: {
         Authorization: `Basic ${auth}`,
@@ -130,8 +212,7 @@ export class EbayClient {
     });
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`eBay OAuth failed: ${response.status} ${text}`);
+      throw new Error(`eBay OAuth failed: ${response.status}`);
     }
 
     const json = (await response.json()) as EbayOAuthResponse;
@@ -167,7 +248,11 @@ export class EbayClient {
       'refinished dial',
     ];
 
-    if (blockedTerms.some((term) => text.includes(term))) {
+    // Match whole terms: "mod" must not exclude legitimate "model" or "modern" listings.
+    if (blockedTerms.some((term) => {
+      const escaped = term.replace(/[.*+?^$(){}|[\]\\]/g, '\\$&');
+      return new RegExp('\\b' + escaped + '\\b', 'i').test(text);
+    })) {
       return false;
     }
 
@@ -181,10 +266,8 @@ export class EbayClient {
       return false;
     }
 
-    const rawPrice = item?.price?.value ?? item?.currentBidPrice?.value;
-    const price = Number(rawPrice);
-
-    if (!Number.isFinite(price)) {
+    const price = gbpAmount(item.price);
+    if (price === null || price <= 0 || fixedShippingGbp(item) === null) {
       return false;
     }
 
@@ -219,7 +302,7 @@ export class EbayClient {
       url: item.itemWebUrl,
       titleRaw: item.title,
       priceGbp: Number(rawPrice) || 0,
-      shippingGbp: 0,
+      shippingGbp: fixedShippingGbp(item)!,
       sellerName: item?.seller?.username || 'unknown',
       sellerFeedbackPercent: Number(item?.seller?.feedbackPercentage || 0),
       sellerFeedbackScore: Number(item?.seller?.feedbackScore || 0),

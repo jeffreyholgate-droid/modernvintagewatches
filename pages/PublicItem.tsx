@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchItem } from '../lib/api';
 import { useCart } from '../lib/cart';
+import { checkoutErrorMessage, requestCheckout } from '../lib/checkout';
 
 const PublicItem: React.FC = () => {
   const { id } = useParams();
@@ -9,6 +10,7 @@ const PublicItem: React.FC = () => {
   const [item, setItem] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
 
   useEffect(() => {
     let alive = true;
@@ -33,26 +35,21 @@ const PublicItem: React.FC = () => {
 
   const addToBag = () => {
     if (!item) return;
-    cart.add({ id: item.id, title, priceGbp: item.priceGbp, imageUrl: image }, 1);
+    if (cart.state.lines.some((line) => line.id === item.id)) {
+      cart.setQty(item.id, 1);
+    } else {
+      cart.add({ id: item.id, title, priceGbp: item.priceGbp, imageUrl: image }, 1);
+    }
   };
 
   const buyNow = async () => {
-    if (!item) return;
+    if (!item || busy) return;
     setBusy(true);
+    setCheckoutError('');
     try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines: [{ id: item.id, title, priceGbp: item.priceGbp, imageUrl: image, qty: 1 }] }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data?.url) {
-        window.location.href = data.url;
-        return;
-      }
-      // Dev fallback: treat as success.
-      cart.clear();
-      window.location.href = '/#/checkout/success';
+      window.location.href = await requestCheckout([{ id: item.id, qty: 1 }]);
+    } catch (error) {
+      setCheckoutError(checkoutErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -118,13 +115,15 @@ const PublicItem: React.FC = () => {
               </button>
             </div>
 
+            {checkoutError ? <p role="alert" className="mt-4 text-sm text-red-700">{checkoutError}</p> : null}
+
             <div className="mt-8 border-t border-line pt-8">
               <h2 className="text-xs uppercase tracking-[0.25em]">Details</h2>
               <div className="mt-5 grid grid-cols-2 gap-y-5 text-sm">
                 <Spec label="Provenance" value={item.locationCountry || 'UK'} />
                 <Spec label="Seller" value={item.sellerName || '—'} />
                 <Spec label="Seller feedback" value={`${item.sellerFeedbackPercent}%`} />
-                <Spec label="Agent score" value={`${item.score}/100`} />
+                <Spec label="Review score" value={item.score > 0 ? `${item.score}/100` : 'Not scored'} />
               </div>
             </div>
 
@@ -138,8 +137,7 @@ const PublicItem: React.FC = () => {
 
             <div className="mt-8 border-t border-line pt-8 text-xs text-muted leading-relaxed">
               <p>
-                * Buy‑now purchases are processed through secure checkout. Inventory is limited — if a source item becomes unavailable,
-                we’ll refund immediately.
+                Each watch is sourced from an external seller. Availability must be confirmed before an order can be fulfilled.
               </p>
             </div>
           </div>

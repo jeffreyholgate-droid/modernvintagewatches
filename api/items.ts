@@ -19,7 +19,11 @@ export default async function handler(req: any, res: any) {
   }
 
   const publishedOnly = !isAdmin;
-  const items = await listItems({ publishedOnly });
-  json(res, 200, { items });
+  try {
+    const items = await listItems({ publishedOnly });
+    return json(res, 200, { items });
+  } catch {
+    return json(res, 503, { error: 'INVENTORY_UNAVAILABLE' });
+  }
 }
 

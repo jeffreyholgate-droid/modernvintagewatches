@@ -1,26 +1,24 @@
-import React from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useCart } from '../lib/cart';
+import { checkoutErrorMessage, requestCheckout } from '../lib/checkout';
 
 const Bag: React.FC = () => {
   const cart = useCart();
-  const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const onCheckout = async () => {
-    // Create Stripe Checkout session (server-side). Falls back to a simulated checkout if Stripe env vars are missing.
-    const res = await fetch('/api/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lines: cart.state.lines }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (data?.url) {
-      window.location.href = data.url;
-      return;
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      window.location.href = await requestCheckout(cart.state.lines);
+    } catch (err) {
+      setError(checkoutErrorMessage(err));
+    } finally {
+      setBusy(false);
     }
-    // Simulated success (dev fallback)
-    cart.clear();
-    navigate('/checkout/success');
   };
 
   return (
@@ -60,6 +58,7 @@ const Bag: React.FC = () => {
                         <input
                           type="number"
                           min={1}
+                          max={1}
                           value={l.qty}
                           onChange={(e) => cart.setQty(l.id, Number(e.target.value))}
                           className="w-20 border border-line px-2 py-1 text-sm"
@@ -83,7 +82,7 @@ const Bag: React.FC = () => {
                 </div>
                 <div className="mt-2 flex justify-between text-sm">
                   <span className="text-muted">Shipping</span>
-                  <span className="text-muted">Calculated at checkout</span>
+                  <span className="text-muted">To be confirmed</span>
                 </div>
                 <div className="mt-5 border-t border-line pt-5 flex justify-between">
                   <span className="text-sm">Total</span>
@@ -91,12 +90,14 @@ const Bag: React.FC = () => {
                 </div>
                 <button
                   onClick={onCheckout}
-                  className="mt-6 w-full bg-ink text-white py-3 text-sm uppercase tracking-widest hover:opacity-90"
+                  disabled={busy}
+                  className="mt-6 w-full bg-ink text-white py-3 text-sm uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
                 >
-                  Checkout
+                  {busy ? 'Starting checkout…' : 'Checkout'}
                 </button>
+                {error ? <p role="alert" className="mt-4 text-sm text-red-700">{error}</p> : null}
                 <p className="mt-4 text-xs text-muted leading-relaxed">
-                  Secure checkout. Inventory is limited; your order is confirmed once payment completes.
+                  Availability is checked before checkout. Each watch is sourced individually.
                 </p>
               </div>
             </div>

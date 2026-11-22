@@ -1,4 +1,4 @@
- import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
+import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
 import { requireAdmin } from '../_lib/auth.js';
 import { getSettings, upsertItems, log, AppStateItem } from '../_lib/db.js';
 import { Category, PublishState } from '../../types.js';
@@ -39,7 +39,7 @@ export default async function handler(req: any, res: any) {
     await log('INFO', `INGEST: scanning ${cat} (£${priceMin}-£${priceMax})`);
 
     const raw = await ebay.searchItems(cat as Category, priceMin, priceMax);
-   await log('INFO', `INGEST DEBUG: ${cat} raw=${raw.length}`);
+    await log('INFO', `INGEST: ${cat} source results=${raw.length}`);
 
     const filtered = raw.filter((i) => {
       const title = (i.titleRaw || '').toLowerCase();
@@ -60,7 +60,8 @@ export default async function handler(req: any, res: any) {
       ...item,
       id: uid(),
       publishStatus: PublishState.UNPUBLISHED,
-      score: Math.floor(Math.random() * 10) + 90,
+      // No assessment has happened yet; do not invent an authenticity score.
+      score: 0,
     }));
 
     all.push(...candidates);
@@ -70,12 +71,13 @@ export default async function handler(req: any, res: any) {
 
   await log(
     'INFO',
-    `INGEST: complete; candidates=${all.length}; upserted=${count}`
+    `INGEST: complete; candidates=${all.length}; new=${count}; existing source details refreshed`
   );
 
   return json(res, 200, {
     ok: true,
     discovered: all.length,
+    inserted: count,
     upserted: count,
   });
 }

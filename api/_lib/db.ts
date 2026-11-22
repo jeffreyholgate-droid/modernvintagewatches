@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Category, PublishState, EbayItem } from '../../types.js';
 
 export interface AppStateItem extends EbayItem {
@@ -30,12 +30,17 @@ const DEFAULT_SETTINGS: Settings = {
   blockKeywords: 'replica,fake,copy,aftermarket,custom,diamond set,ice,lab,moissanite'
 };
 
-type SupabaseClient = ReturnType<typeof createClient>;
-
 function getSupabase(): SupabaseClient | null {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
+  const url = process.env.SUPABASE_URL?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+  if (!url || !key) {
+    // An empty serverless instance must never masquerade as a working database.
+    const deployed = process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+    if (deployed || url || key || process.env.ALLOW_IN_MEMORY_DB !== 'true') {
+      throw new Error('PERSISTENCE_NOT_CONFIGURED');
+    }
+    return null;
+  }
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
@@ -47,7 +52,25 @@ const mem = {
 };
 
 export function isPersistent(): boolean {
-  return !!getSupabase();
+  // Configuration presence only; callers must query the database to check health.
+  return Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+}
+
+export async function checkDatabase(): Promise<'connected' | 'memory'> {
+  const supabase = getSupabase();
+  if (!supabase) return 'memory';
+  // Check the tables and columns actually needed by the app, not merely whether
+  // credentials are present. Empty tables are healthy; inaccessible/missing
+  // tables or an incompatible schema are not.
+  const results = await Promise.all([
+    supabase.from('items').select('id,ebay_item_id,url,title_raw,title_boutique,description,price_gbp,shipping_gbp,seller_name,seller_feedback_percent,seller_feedback_score,category,location_country,image_urls,status,last_seen_at,first_seen_at,publish_state,score,updated_at').limit(1),
+    supabase.from('settings').select('id,data,updated_at').limit(1),
+    supabase.from('logs').select('id,ts,level,message').limit(1),
+  ]);
+  for (const result of results) {
+    if (result.error) throw new Error('DATABASE_UNAVAILABLE');
+  }
+  return 'connected';
 }
 
 export async function log(level: string, message: string) {
@@ -98,17 +121,92 @@ export async function listItems(opts: { publishedOnly: boolean }): Promise<AppSt
 
 export async function upsertItems(newItems: AppStateItem[]): Promise<number> {
   const supabase = getSupabase();
-  if (!supabase) {
-    const existing = new Set(mem.items.map(i => i.ebayItemId));
-    const unique = newItems.filter(i => !existing.has(i.ebayItemId));
-    mem.items = [...unique, ...mem.items];
-    return unique.length;
+  // eBay can return a listing more than once. Keep its newest observation and
+  // avoid PostgreSQL conflict errors or duplicate entries in the local store.
+  const candidates = new Map<string, AppStateItem>();
+  for (const item of newItems) {
+    if (!item.ebayItemId || !Number.isFinite(Date.parse(item.lastSeenAt))) {
+      throw new Error('INVALID_INVENTORY_OBSERVATION');
+    }
+    const previous = candidates.get(item.ebayItemId);
+    if (!previous || Date.parse(item.lastSeenAt) >= Date.parse(previous.lastSeenAt)) {
+      candidates.set(item.ebayItemId, item);
+    }
   }
-  const rows = newItems.map(itemToRow);
-  const { data, error } = await supabase.from('items').upsert(rows, { onConflict: 'ebay_item_id' }).select('ebay_item_id');
+  const unique = [...candidates.values()];
+  if (!unique.length) return 0;
+  if (!supabase) {
+    let inserted = 0;
+    for (const item of unique) {
+      const index = mem.items.findIndex(existing => existing.ebayItemId === item.ebayItemId);
+      if (index < 0) {
+        mem.items.unshift({ ...item });
+        inserted++;
+      } else {
+        const existing = mem.items[index];
+        if (existing.status === 'ACTIVE' && Date.parse(existing.lastSeenAt) <= Date.parse(item.lastSeenAt)) {
+          mem.items[index] = { ...existing, ...sourceItemPatch(item) };
+        }
+      }
+    }
+    return inserted;
+  }
+  // Insert-only on conflict. A full-row upsert would replace IDs, curation and
+  // publish state, including changes made by an administrator during this scan.
+  const { data, error } = await supabase.from('items')
+    .upsert(unique.map(itemToRow), { onConflict: 'ebay_item_id', ignoreDuplicates: true })
+    .select('ebay_item_id');
   if (error) throw error;
-  // Supabase returns all affected rows; we can't easily know how many were new without extra query.
-  return data?.length ?? 0;
+  const insertedIds = new Set((data ?? []).map(row => row.ebay_item_id));
+  const existing = unique.filter(item => !insertedIds.has(item.ebayItemId));
+  // Only source-owned columns are refreshed, with database-side guards against
+  // stale overlapping scans and updates to sold/reserved inventory. There is no
+  // read/merge/write of editorial columns, so concurrent curation is preserved.
+  for (let start = 0; start < existing.length; start += 10) {
+    await Promise.all(existing.slice(start, start + 10).map(async item => {
+      const { error: updateError } = await supabase.from('items')
+        .update(sourceRowPatch(item))
+        .eq('ebay_item_id', item.ebayItemId)
+        .eq('status', 'ACTIVE')
+        .lte('last_seen_at', item.lastSeenAt);
+      if (updateError) throw updateError;
+    }));
+  }
+  return insertedIds.size;
+}
+
+function sourceItemPatch(item: AppStateItem): Partial<AppStateItem> {
+  return {
+    url: item.url,
+    titleRaw: item.titleRaw,
+    priceGbp: item.priceGbp,
+    shippingGbp: item.shippingGbp,
+    sellerName: item.sellerName,
+    sellerFeedbackPercent: item.sellerFeedbackPercent,
+    sellerFeedbackScore: item.sellerFeedbackScore,
+    category: item.category,
+    locationCountry: item.locationCountry,
+    imageUrls: item.imageUrls,
+    lastSeenAt: item.lastSeenAt,
+  };
+}
+
+function sourceRowPatch(item: AppStateItem) {
+  const source = sourceItemPatch(item);
+  return {
+    url: source.url,
+    title_raw: source.titleRaw,
+    price_gbp: source.priceGbp,
+    shipping_gbp: source.shippingGbp,
+    seller_name: source.sellerName,
+    seller_feedback_percent: source.sellerFeedbackPercent,
+    seller_feedback_score: source.sellerFeedbackScore,
+    category: source.category,
+    location_country: source.locationCountry,
+    image_urls: source.imageUrls,
+    last_seen_at: source.lastSeenAt,
+    updated_at: new Date().toISOString(),
+  };
 }
 
 export async function updateItem(id: string, patch: Partial<AppStateItem>): Promise<void> {
