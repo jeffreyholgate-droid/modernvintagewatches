@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchItem } from '../lib/api';
 import { useCart } from '../lib/cart';
-import { checkoutErrorMessage, requestCheckout } from '../lib/checkout';
+import { checkoutErrorMessage, checkoutNeedsPriceRefresh, requestCheckout } from '../lib/checkout';
+import { formatPence, publicPrice, quotedCartLine } from '../lib/cart-pricing';
 
 const PublicItem: React.FC = () => {
   const { id } = useParams();
@@ -45,23 +46,24 @@ const PublicItem: React.FC = () => {
 
   const title = useMemo(() => item?.titleBoutique || item?.titleRaw || 'Item', [item]);
   const image = useMemo(() => item?.imageUrls?.[0], [item]);
+  const pricing = publicPrice(item);
 
   const addToBag = () => {
-    if (!item) return;
-    if (cart.state.lines.some((line) => line.id === item.id)) {
-      cart.setQty(item.id, 1);
-    } else {
-      cart.add({ id: item.id, title, priceGbp: item.priceGbp, imageUrl: image }, 1);
-    }
+    const line = quotedCartLine(item);
+    if (line) cart.add(line);
   };
 
   const buyNow = async () => {
-    if (!item || busy) return;
+    if (!item || !pricing || busy) return;
     setBusy(true);
     setCheckoutError('');
     try {
-      window.location.href = await requestCheckout([{ id: item.id, qty: 1 }]);
+      window.location.href = await requestCheckout([{ id: item.id, qty: 1, expectedAmountPence: pricing.retailPricePence }]);
     } catch (error) {
+      if (checkoutNeedsPriceRefresh(error)) {
+        try { setItem(await fetchItem(item.id)); }
+        catch { setLoadError('We couldn’t confirm the current price. Please try again.'); }
+      }
       setCheckoutError(checkoutErrorMessage(error));
     } finally {
       setBusy(false);
@@ -125,18 +127,21 @@ const PublicItem: React.FC = () => {
           {/* Details */}
           <div className="lg:col-span-5">
             <h1 className="text-3xl md:text-4xl tracking-tight">{title}</h1>
-            <p className="mt-3 text-xl">£{Number(item.priceGbp).toLocaleString()}</p>
+            <p className="mt-3 text-xl">{pricing ? formatPence(pricing.retailPricePence) : 'Price unavailable'}</p>
+            {pricing ? <p className="mt-2 text-sm text-muted">UK delivery included</p>
+              : <p className="mt-2 text-sm text-muted">We’re confirming the current price. Please try again shortly.</p>}
 
             <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 onClick={addToBag}
-                className="w-full border border-black py-3 text-sm uppercase tracking-widest hover:bg-black hover:text-white transition"
+                disabled={!pricing || busy}
+                className="w-full border border-black py-3 text-sm uppercase tracking-widest hover:bg-black hover:text-white transition disabled:opacity-50"
               >
                 Add to bag
               </button>
               <button
                 onClick={buyNow}
-                disabled={busy}
+                disabled={busy || !pricing}
                 className="w-full bg-black text-white py-3 text-sm uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
               >
                 {busy ? 'Starting checkout…' : 'Buy now'}

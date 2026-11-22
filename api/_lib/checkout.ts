@@ -1,4 +1,5 @@
-import type { AppStateItem } from './db.js';
+import type { AppStateItem, Settings } from './db.js';
+import { pricingForItem } from './pricing.js';
 
 export const CHECKOUT_MARKER = 'mvw-checkout-v1';
 
@@ -8,7 +9,7 @@ export class CheckoutError extends Error {
   }
 }
 
-export type CheckoutLine = { id: string; qty: 1 };
+export type CheckoutLine = { id: string; qty: 1; expectedAmountPence?: number };
 
 export function parseCheckoutKey(body: unknown): string {
   const key = (body as { checkoutKey?: unknown } | null)?.checkoutKey;
@@ -27,11 +28,13 @@ export function parseCheckoutLines(body: unknown): CheckoutLine[] {
   return lines.map((line) => {
     if (!line || typeof line.id !== 'string' || !line.id.trim() ||
         line.id !== line.id.trim() || line.id.length > 200 ||
-        /[\x00-\x1f\x7f]/.test(line.id) || line.qty !== 1 || ids.has(line.id)) {
+        /[\x00-\x1f\x7f]/.test(line.id) || line.qty !== 1 || ids.has(line.id) ||
+        (line.expectedAmountPence !== undefined && (!Number.isSafeInteger(line.expectedAmountPence) ||
+          line.expectedAmountPence < 50 || line.expectedAmountPence > 99999999))) {
       throw new CheckoutError('INVALID_LINES', 400);
     }
     ids.add(line.id);
-    return { id: line.id, qty: 1 };
+    return { id: line.id, qty: 1, ...(line.expectedAmountPence === undefined ? {} : { expectedAmountPence: line.expectedAmountPence }) };
   });
 }
 
@@ -61,31 +64,47 @@ export type SourceOffer = { priceGbp: number; shippingGbp: number };
 export type CheckoutDependencies = {
   getItem: (id: string) => Promise<AppStateItem | null>;
   getSourceOffer: (ebayItemId: string) => Promise<SourceOffer | null>;
+  getSettings: () => Promise<Pick<Settings, 'marginPercent' | 'pricingPolicy'>>;
 };
 
 export async function authoritativeLines(lines: CheckoutLine[], deps: CheckoutDependencies) {
-  return Promise.all(lines.map(async ({ id }) => {
+  const settings = await deps.getSettings();
+  return Promise.all(lines.map(async ({ id, expectedAmountPence }) => {
     const item = await deps.getItem(id);
     if (!item || item.publishStatus !== 'PUBLISHED' || item.status !== 'ACTIVE') {
       throw new CheckoutError('ITEM_UNAVAILABLE', 409);
     }
-    const amount = Math.round(item.priceGbp * 100);
-    if (!Number.isFinite(item.priceGbp) || !Number.isSafeInteger(amount) || amount < 50 ||
+    const sourceAmount = Math.round(item.priceGbp * 100);
+    if (!Number.isFinite(item.priceGbp) || !Number.isSafeInteger(sourceAmount) || sourceAmount < 50 ||
         !Number.isFinite(item.shippingGbp) || item.shippingGbp < 0) {
       throw new CheckoutError('ITEM_UNAVAILABLE', 409);
     }
+    let pricing;
+    try { pricing = pricingForItem(item, settings); }
+    catch (error: any) {
+      if (error?.code === 'INVALID_PRICING_SETTINGS' || error?.message === 'INVALID_PRICING_SETTINGS') {
+        throw new CheckoutError('CHECKOUT_UNAVAILABLE', 503);
+      }
+      throw new CheckoutError('ITEM_UNAVAILABLE', 409);
+    }
+    // This is agreement with the displayed price, never authority to set a charge.
+    // Existing checkout keys bypass new quoting and retain their original snapshots.
+    if (expectedAmountPence !== pricing.retailPricePence) throw new CheckoutError('PRICE_CHANGED', 409);
     const offer = await deps.getSourceOffer(item.ebayItemId);
     if (!offer) throw new CheckoutError('ITEM_UNAVAILABLE', 409);
     if (!Number.isFinite(offer.priceGbp) || !Number.isFinite(offer.shippingGbp) ||
-        Math.round(offer.priceGbp * 100) !== amount ||
-        Math.round(offer.shippingGbp * 100) !== Math.round(item.shippingGbp * 100)) {
+        Math.abs(Math.round(offer.priceGbp * 100) / 100 - offer.priceGbp) > 1e-7 ||
+        Math.abs(Math.round(offer.shippingGbp * 100) / 100 - offer.shippingGbp) > 1e-7 ||
+        Math.round(offer.priceGbp * 100) !== pricing.sourceItemPence ||
+        Math.round(offer.shippingGbp * 100) !== pricing.sourceShippingPence) {
       throw new CheckoutError('ITEM_CHANGED', 409);
     }
     return {
       quantity: 1,
+      pricing,
       price_data: {
         currency: 'gbp',
-        unit_amount: amount,
+        unit_amount: pricing.retailPricePence,
         product_data: {
           name: item.titleBoutique || item.titleRaw,
           metadata: { item_id: item.id },

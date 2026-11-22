@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { globalStore, AppStateItem } from '../lib/store';
 import { Category, PublishState } from '../types';
+import { formatPence, publicPrice } from '../lib/cart-pricing';
 
 type SortMode = 'NEWEST' | 'PRICE_ASC' | 'PRICE_DESC';
 
@@ -46,8 +47,12 @@ const PublicStore: React.FC = () => {
       return hay.includes(q);
     });
     const sorted = [...base].sort((a, b) => {
-      if (sort === 'PRICE_ASC') return a.priceGbp - b.priceGbp;
-      if (sort === 'PRICE_DESC') return b.priceGbp - a.priceGbp;
+      if (sort === 'PRICE_ASC' || sort === 'PRICE_DESC') {
+        const left = publicPrice(a)?.retailPricePence;
+        const right = publicPrice(b)?.retailPricePence;
+        if (left === undefined || right === undefined) return left === right ? 0 : left === undefined ? 1 : -1;
+        return sort === 'PRICE_ASC' ? left - right : right - left;
+      }
       // NEWEST
       return String(b.lastSeenAt || '').localeCompare(String(a.lastSeenAt || ''));
     });
@@ -149,7 +154,8 @@ const PublicStore: React.FC = () => {
                   <p className="mt-1 text-sm leading-snug">
                     {item.titleBoutique || item.titleRaw}
                   </p>
-                  <p className="mt-2 text-sm">£{item.priceGbp.toLocaleString()}</p>
+                  <p className="mt-2 text-sm">{publicPrice(item) ? formatPence(publicPrice(item)!.retailPricePence) : 'Price unavailable'}</p>
+                  {publicPrice(item) && <p className="mt-1 text-xs text-muted">UK delivery included</p>}
                 </div>
               </Link>
             ))}

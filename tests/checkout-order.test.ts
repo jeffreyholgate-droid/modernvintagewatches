@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import type { Order } from '../api/_lib/orders.js';
 import { CheckoutError, CHECKOUT_MARKER } from '../api/_lib/checkout.js';
 import { linkedPaymentStatus, startOrderCheckout, stripeOrderParameters, type CheckoutOrderDependencies } from '../api/_lib/checkout-order.js';
+import { pricingForItem } from '../api/_lib/pricing.js';
+import { Category } from '../types.js';
+
+const pricing = pricingForItem({ priceGbp: 2500.25, shippingGbp: 10, category: Category.WATCH }, { marginPercent: { WATCH: 20, HANDBAG: 20, JEWELLERY: 20 } });
 
 const now = Date.parse('2026-11-22T12:00:00Z');
 const orderFixture = (): Order => ({
@@ -27,10 +31,14 @@ function harness(initialOrder: Order | null = null) {
   const deps: CheckoutOrderDependencies = {
     now: () => now,
     getOrderByCheckoutKey: async () => stored,
-    quote: async () => { calls.quote++; return [{ itemId: 'watch-1', amountPence: 250025 }]; },
+    quote: async () => { calls.quote++; return [{ itemId: 'watch-1', amountPence: pricing.retailPricePence, pricing }]; },
     reserveOrder: async (args) => {
       calls.reserve++;
-      stored ??= { ...orderFixture(), checkoutKey: args.checkoutKey, checkoutOrigin: args.checkoutOrigin };
+      stored ??= {
+        ...orderFixture(), checkoutKey: args.checkoutKey, checkoutOrigin: args.checkoutOrigin,
+        totalPence: args.lines.reduce((sum, line) => sum + line.amountPence, 0),
+        lines: args.lines.map((line) => ({ ...orderFixture().lines[0], ...line })),
+      };
       return stored;
     },
     createSession: async (params, key) => {
@@ -52,7 +60,8 @@ test('new checkout quotes then reserves durable snapshots before creating and at
   assert.equal(h.current()?.stripeSessionId, result.id);
   assert.equal(h.calls.quote, 1); assert.equal(h.calls.reserve, 1); assert.equal(h.calls.create, 1); assert.equal(h.calls.attach, 1);
   assert.equal(h.calls.keys[0], `mvw-order:${orderFixture().id}`);
-  assert.deepEqual(h.calls.params[0], stripeOrderParameters(orderFixture()));
+  assert.deepEqual(h.calls.params[0], stripeOrderParameters(h.current()!));
+  assert.equal((h.calls.params[0] as any).line_items[0].price_data.product_data.description, 'UK delivery included');
 });
 
 test('repeated checkout reuses attached Stripe session without checking its own reserved inventory as ACTIVE', async () => {
@@ -60,6 +69,17 @@ test('repeated checkout reuses attached Stripe session without checking its own 
   const result = await startOrderCheckout(input(), h.deps);
   assert.equal(result.id, 'cs_test_fixture');
   assert.equal(h.calls.quote, 0); assert.equal(h.calls.reserve, 0); assert.equal(h.calls.create, 0); assert.equal(h.calls.retrieve, 1);
+});
+
+test('legacy order retries keep exact Stripe parameters and ignore a newly displayed retail price', async () => {
+  const original = orderFixture();
+  const h = harness(original);
+  h.deps.quote = async () => { throw new Error('existing order must not reprice'); };
+  await startOrderCheckout({ ...input(), lines: [{ id: 'watch-1', qty: 1, expectedAmountPence: pricing.retailPricePence }] }, h.deps);
+  assert.deepEqual(h.calls.params[0], stripeOrderParameters(original));
+  assert.equal((h.calls.params[0] as any).line_items[0].price_data.unit_amount, 250025);
+  assert.equal(Object.hasOwn((h.calls.params[0] as any).line_items[0].price_data.product_data, 'description'), false);
+  assert.equal(Object.hasOwn(h.calls.params[0] as object, 'shipping_options'), false);
 });
 
 test('ambiguous Stripe create retries use identical key and persisted parameters even if site config changes', async () => {

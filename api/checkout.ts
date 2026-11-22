@@ -1,5 +1,5 @@
 import { json, methodNotAllowed, readJson } from './_lib/respond.js';
-import { getItemById } from './_lib/db.js';
+import { getItemById, getSettings } from './_lib/db.js';
 import { EbayClient } from '../server/ebay.js';
 import { attachCheckoutSession, getOrderByCheckoutKey, getOrderById, reserveOrder } from './_lib/orders.js';
 import { linkedPaymentStatus, startOrderCheckout } from './_lib/checkout-order.js';
@@ -48,10 +48,12 @@ export default async function handler(req: any, res: any) {
         const quoted = await authoritativeLines(requested, {
           getItem: getItemById,
           getSourceOffer: (id) => ebay.getPurchasableItem(id),
+          getSettings,
         });
         return quoted.map((line) => ({
           itemId: line.price_data.product_data.metadata.item_id,
           amountPence: line.price_data.unit_amount,
+          pricing: line.pricing,
         }));
       },
       createSession: (params, idempotencyKey) => stripe.checkout.sessions.create(params, { idempotencyKey }),
@@ -63,7 +65,7 @@ export default async function handler(req: any, res: any) {
     if (req.method === 'GET' && error?.code === 'resource_missing') {
       return json(res, 404, { error: 'SESSION_NOT_FOUND' });
     }
-    if (['ITEM_UNAVAILABLE', 'ITEM_CHANGED', 'CHECKOUT_KEY_REUSED'].includes(error?.code)) {
+    if (['ITEM_UNAVAILABLE', 'ITEM_CHANGED', 'PRICE_CHANGED', 'CHECKOUT_KEY_REUSED'].includes(error?.code)) {
       return json(res, 409, { error: error.code });
     }
     if (['SESSION_CONFLICT', 'ORDER_UNAVAILABLE'].includes(error?.code)) {

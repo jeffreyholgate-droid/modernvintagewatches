@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { fetchOrders, type AdminOrderSummary } from '../lib/api';
+import { formatPence } from '../lib/cart-pricing';
 
 const labels: Record<string, string> = {
   pending_payment: 'Awaiting payment',
@@ -53,13 +54,21 @@ const AdminOrders: React.FC = () => {
                   <p className="mt-2 text-xs text-muted break-all">Order {order.id}</p>
                   <p className="mt-1 text-xs text-muted">{new Date(order.createdAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })}</p>
                 </div>
-                <p className="font-medium">£{(order.totalPence / 100).toFixed(2)}</p>
+                <p className="font-medium">{formatPence(order.totalPence)}</p>
               </div>
               <ul className="mt-5 space-y-3">
                 {order.lines.map(line => {
                   const href = sourceLink(line.sourceUrl);
                   return <li key={line.itemId} className="flex flex-wrap gap-3 justify-between text-sm">
-                    <span>{line.title} · £{(line.amountPence / 100).toFixed(2)}</span>
+                    <div>
+                      <span>{line.title} · {formatPence(line.amountPence)}</span>
+                      {line.pricing ? <div className="mt-2 space-y-1 text-xs text-muted">
+                        <p>Source item {formatPence(line.pricing.sourceItemPence)} · source postage {formatPence(line.pricing.sourceShippingPence)} · delivery allowance {formatPence(line.pricing.deliveryAllowancePence)}</p>
+                        <p>Target gross margin {(line.pricing.marginBps / 100).toFixed(2)}% · estimated payment fee {formatPence(line.pricing.estimatedFeePence)}</p>
+                        <p>Estimated contribution after fee {formatPence(line.pricing.estimatedContributionPence)}. Other business costs are not deducted.</p>
+                        <p>UK delivery included · not VAT registered. Amounts reflect the order’s saved pricing.</p>
+                      </div> : <p className="mt-2 text-xs text-muted">Legacy order: the original checkout amount is preserved; no pricing breakdown was recorded.</p>}
+                    </div>
                     {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="underline">Review eBay listing</a> : <span className="text-muted">Source link unavailable</span>}
                   </li>;
                 })}

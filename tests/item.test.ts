@@ -23,6 +23,10 @@ async function withDatabase(reply: (method: string, payload: any) => Response, r
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     assert.equal(url.origin, 'https://mvw-test.supabase.invalid');
+    if (url.pathname === '/rest/v1/settings') {
+      assert.equal(url.searchParams.get('id'), 'eq.default');
+      return Response.json({ data: { marginPercent: { WATCH: 20, HANDBAG: 20, JEWELLERY: 20 } } });
+    }
     assert.equal(url.pathname, '/rest/v1/items');
     assert.equal(url.searchParams.get('id'), 'eq.watch-a');
     return reply(init?.method || 'GET', init?.body ? JSON.parse(String(init.body)) : undefined);
@@ -61,6 +65,10 @@ test('item missing row remains 404 and a published active item remains public', 
     const result = await request();
     assert.equal(result.status, 200);
     assert.equal(result.body.item.id, 'watch-a');
+    assert.equal(result.body.item.pricing.retailPricePence, 319000);
+    assert.equal(result.body.item.pricing.deliveryIncluded, true);
+    assert.equal('priceGbp' in result.body.item, false);
+    assert.equal('shippingGbp' in result.body.item, false);
   });
 });
 
@@ -72,6 +80,8 @@ test('reserved, sold and unpublished item details remain hidden publicly but vis
       const admin = await request('GET', token);
       assert.equal(admin.status, 200);
       assert.equal(admin.body.item.id, 'watch-a');
+      assert.equal(admin.body.item.priceGbp, 2500);
+      assert.equal(admin.body.item.pricing.sourceItemPence, 250000);
     });
   }
 });

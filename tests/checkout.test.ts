@@ -7,6 +7,8 @@ import {
 import { requestCheckout, checkoutErrorMessage, checkoutAttemptKey, type CheckoutAttemptStorage } from '../lib/checkout.js';
 import type { AppStateItem } from '../api/_lib/db.js';
 import checkoutHandler from '../api/checkout.js';
+import { Category } from '../types.js';
+import { DEFAULT_PRICING_POLICY, pricingForItem } from '../api/_lib/pricing.js';
 
 const configured = {
   CHECKOUT_ENABLED: 'true',
@@ -20,10 +22,15 @@ const configured = {
 const item = {
   id: 'watch-1', ebayItemId: 'source-1', titleRaw: 'Original watch', titleBoutique: 'Curated watch',
   publishStatus: 'PUBLISHED', status: 'ACTIVE', priceGbp: 2500.25, shippingGbp: 10,
+  category: Category.WATCH,
 } as AppStateItem;
+const pricingSettings = { marginPercent: { WATCH: 20, HANDBAG: 20, JEWELLERY: 20 }, pricingPolicy: DEFAULT_PRICING_POLICY };
+const expectedPricing = pricingForItem(item, pricingSettings);
+const quotedLine = { id: 'watch-1', qty: 1 as const, expectedAmountPence: expectedPricing.retailPricePence };
 const deps = (overrides: Partial<AppStateItem> = {}) => ({
   getItem: async () => ({ ...item, ...overrides }),
   getSourceOffer: async () => ({ priceGbp: 2500.25, shippingGbp: 10 }),
+  getSettings: async () => pricingSettings,
 });
 function storage(): CheckoutAttemptStorage {
   const values = new Map<string, string>();
@@ -94,9 +101,10 @@ test('checkout requests require a valid opaque UUID retry key', () => {
 });
 
 test('tampered browser price and title cannot control Stripe line items', async () => {
-  const requested = parseCheckoutLines({ lines: [{ id: 'watch-1', qty: 1, priceGbp: 0.01, title: 'Forged' }] });
+  const requested = parseCheckoutLines({ lines: [{ ...quotedLine, priceGbp: 0.01, title: 'Forged' }] });
   const actual = await authoritativeLines(requested, deps());
-  assert.equal(actual[0].price_data.unit_amount, 250025);
+  assert.equal(actual[0].price_data.unit_amount, 320500);
+  assert.deepEqual(actual[0].pricing, expectedPricing);
   assert.equal(actual[0].price_data.product_data.name, 'Curated watch');
   assert.equal(actual[0].quantity, 1);
 });
@@ -104,20 +112,45 @@ test('tampered browser price and title cannot control Stripe line items', async 
 test('checkout refuses unpublished, unavailable, missing or invalid-priced inventory', async () => {
   for (const override of [{ publishStatus: 'DRAFT' }, { publishStatus: 'UNPUBLISHED' },
     { status: 'SOLD' }, { status: 'ENDED' }, { priceGbp: 0 }, { priceGbp: NaN }, { priceGbp: Infinity }, { shippingGbp: -1 }]) {
-    await assert.rejects(authoritativeLines([{ id: 'watch-1', qty: 1 }], deps(override as Partial<AppStateItem>)), CheckoutError);
+    await assert.rejects(authoritativeLines([quotedLine], deps(override as Partial<AppStateItem>)), CheckoutError);
   }
   await assert.rejects(authoritativeLines([{ id: 'missing', qty: 1 }], { ...deps(), getItem: async () => null }), CheckoutError);
 });
 
 test('checkout refuses disappeared sources, changed price/shipping, and provider failures', async () => {
-  for (const offer of [null, { priceGbp: 2600, shippingGbp: 10 }, { priceGbp: 2500.25, shippingGbp: 20 }]) {
-    await assert.rejects(authoritativeLines([{ id: 'watch-1', qty: 1 }], {
+  for (const offer of [null, { priceGbp: 2600, shippingGbp: 10 }, { priceGbp: 2500.25, shippingGbp: 20 },
+    { priceGbp: 2500.251, shippingGbp: 10 }, { priceGbp: 2500.25, shippingGbp: 10.001 }]) {
+    await assert.rejects(authoritativeLines([quotedLine], {
       ...deps(), getSourceOffer: async () => offer,
     }), CheckoutError);
   }
-  await assert.rejects(authoritativeLines([{ id: 'watch-1', qty: 1 }], {
+  await assert.rejects(authoritativeLines([quotedLine], {
     ...deps(), getSourceOffer: async () => { throw new Error('source unavailable'); },
   }));
+});
+
+test('new checkout needs agreement with current retail price before checking source or reserving', async () => {
+  let sourceCalls = 0;
+  for (const expectedAmountPence of [undefined, expectedPricing.retailPricePence - 500, 50]) {
+    await assert.rejects(authoritativeLines([{ id: item.id, qty: 1, expectedAmountPence }], {
+      ...deps(), getSourceOffer: async () => { sourceCalls++; return { priceGbp: item.priceGbp, shippingGbp: item.shippingGbp }; },
+    }), (error) => error instanceof CheckoutError && error.code === 'PRICE_CHANGED' && error.status === 409);
+  }
+  assert.equal(sourceCalls, 0);
+  for (const expectedAmountPence of [null, 1, -1, 1.5, '320500', NaN, Infinity, 100000000]) {
+    assert.throws(() => parseCheckoutLines({ lines: [{ ...quotedLine, expectedAmountPence }] }), CheckoutError);
+  }
+  assert.deepEqual(parseCheckoutLines({ lines: [{ id: item.id, qty: 1 }] }), [{ id: item.id, qty: 1 }]);
+});
+
+test('invalid pricing configuration fails closed and retail is never compared against source cost', async () => {
+  await assert.rejects(authoritativeLines([quotedLine], {
+    ...deps(), getSettings: async () => ({ ...pricingSettings, marginPercent: { ...pricingSettings.marginPercent, WATCH: 100 } }),
+  }), (error) => error instanceof CheckoutError && error.code === 'CHECKOUT_UNAVAILABLE');
+  const actual = await authoritativeLines([quotedLine], deps());
+  assert.notEqual(actual[0].price_data.unit_amount, Math.round(item.priceGbp * 100));
+  assert.equal(actual[0].pricing.sourceShippingPence, 1000);
+  assert.equal(actual[0].pricing.deliveryAllowancePence, 5000);
 });
 
 test('a success URL alone cannot confirm payment; only a paid complete MVW session can', () => {
@@ -145,7 +178,7 @@ test('frontend rejects failed responses, missing redirect URLs and unsafe redire
   }
 });
 
-test('frontend sends only identifiers and quantity, accepts only a successful Stripe redirect', async () => {
+test('legacy retry payload omits untrusted display prices and validates Stripe redirect', async () => {
   let payload: any;
   const result = await requestCheckout([{ id: 'watch-1', qty: 1, priceGbp: 0.01 } as any], async (_url, options) => {
     payload = JSON.parse(String(options?.body));

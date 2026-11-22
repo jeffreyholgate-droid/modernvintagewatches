@@ -3,6 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { globalStore, AppStateItem } from '../lib/store';
 import { PublishState } from '../types';
 import { runCurate, patchItem } from '../lib/api';
+import { formatPence, publicPrice } from '../lib/cart-pricing';
+import type { PricingQuote } from '../api/_lib/pricing';
 
 const AdminInventory: React.FC = () => {
   const [items, setItems] = useState<AppStateItem[]>([]);
@@ -77,7 +79,7 @@ const AdminInventory: React.FC = () => {
               <th className="px-6 py-3 text-left text-[10px] font-bold uppercase text-stone-400">Discovery</th>
               <th className="px-6 py-3 text-left text-[10px] font-bold uppercase text-stone-400">Boutique Identity</th>
               <th className="px-6 py-3 text-left text-[10px] font-bold uppercase text-stone-400">Score</th>
-              <th className="px-6 py-3 text-left text-[10px] font-bold uppercase text-stone-400">Price</th>
+              <th className="px-6 py-3 text-left text-[10px] font-bold uppercase text-stone-400">Costs & retail price</th>
               <th className="px-6 py-3 text-right text-[10px] font-bold uppercase text-stone-400">Workflow</th>
             </tr>
           </thead>
@@ -106,7 +108,7 @@ const AdminInventory: React.FC = () => {
                 <td className="px-6 py-4">
                    <span className="font-mono font-bold text-amber-600">{item.score > 0 ? item.score : 'Not scored'}</span>
                 </td>
-                <td className="px-6 py-4 font-medium text-stone-900">£{item.priceGbp.toLocaleString()}</td>
+                <td className="px-6 py-4 text-stone-900"><InventoryPricing item={item} /></td>
                 <td className="px-6 py-4 text-right">
                   {item.publishStatus !== PublishState.PUBLISHED ? (
                     <div className="flex flex-col items-end gap-2">
@@ -145,6 +147,7 @@ const AdminInventory: React.FC = () => {
             <p className="text-sm text-stone-600">Check the title, condition, reference and any authenticity claims against the source, including any generated text. Source availability does not verify condition or authenticity.</p>
             {review.item.status !== 'ACTIVE' && <p className="text-sm text-amber-800">This source listing is not active. You can save a draft, but it cannot be published.</p>}
             <a href={review.item.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">Open source listing</a>
+            <div className="border border-stone-200 p-4"><InventoryPricing item={review.item} /></div>
             <label className="block text-sm">Title
               <input value={review.title} onChange={e => setReview({ ...review, title: e.target.value })} className="block w-full border border-stone-300 p-2 mt-1" />
             </label>
@@ -162,6 +165,24 @@ const AdminInventory: React.FC = () => {
       )}
     </div>
   );
+};
+
+const InventoryPricing: React.FC<{ item: AppStateItem }> = ({ item }) => {
+  const pricing = (item as AppStateItem & { pricing?: PricingQuote | null }).pricing;
+  const cost = (value: number) => Number.isFinite(value) ? formatPence(Math.round(value * 100)) : 'Unavailable';
+  return <div className="space-y-1 text-xs min-w-[210px]">
+    <p>Source item: {cost(item.priceGbp)}</p>
+    <p>Source postage: {cost(item.shippingGbp)}</p>
+    {publicPrice(item) && pricing ? <>
+      <p>Delivery allowance: {formatPence(pricing.deliveryAllowancePence)}</p>
+      <p>Target gross margin: {(pricing.marginBps / 100).toFixed(2)}%</p>
+      <p className="font-semibold text-sm">Retail: {formatPence(pricing.retailPricePence)}</p>
+      <p>UK delivery included</p>
+      <p>Estimated payment fee: {formatPence(pricing.estimatedFeePence)}</p>
+      <p>Est. contribution after fee: {formatPence(pricing.estimatedContributionPence)}</p>
+      <p className="text-[10px] text-stone-500">Fee allowance only; no customer surcharge. Other business costs are not deducted.</p>
+    </> : <p className="text-amber-800">Retail price unavailable — review source costs and pricing settings.</p>}
+  </div>;
 };
 
 export default AdminInventory;

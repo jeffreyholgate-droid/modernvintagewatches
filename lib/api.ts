@@ -1,4 +1,5 @@
 import { PublishState } from '../types';
+import type { PricingQuote } from '../api/_lib/pricing';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || '';
 
@@ -112,7 +113,7 @@ export interface AdminOrderSummary {
   currency: string;
   createdAt: string;
   stripeSessionId: string | null;
-  lines: Array<{ itemId: string; title: string; amountPence: number; sourceUrl: string; ebayItemId: string }>;
+  lines: Array<{ itemId: string; title: string; amountPence: number; sourceUrl: string; ebayItemId: string; pricing?: PricingQuote | null }>;
 }
 
 export async function fetchOrders(): Promise<AdminOrderSummary[]> {

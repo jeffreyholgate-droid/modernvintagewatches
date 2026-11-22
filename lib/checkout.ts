@@ -1,4 +1,4 @@
-type CheckoutRequestLine = { id: string; qty: number };
+type CheckoutRequestLine = { id: string; qty: number; expectedAmountPence?: number };
 export type CheckoutAttemptStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -17,15 +17,42 @@ export function checkoutAttemptKey(lines: CheckoutRequestLine[], storage: Checko
   return key;
 }
 
+export function hasCheckoutAttempt(lines: CheckoutRequestLine[], storage?: CheckoutAttemptStorage): boolean {
+  try {
+    const key = (storage ?? globalThis.sessionStorage).getItem(attemptStorageKey(lines));
+    return !!key && UUID.test(key);
+  } catch { return false; }
+}
+
 const errors: Record<string, string> = {
   INVALID_LINES: 'Each watch is a unique item. Please choose one of each watch in your bag.',
   ITEM_UNAVAILABLE: 'A watch is no longer available. Please review your bag before trying again.',
   ITEM_CHANGED: 'A source listing has changed. Please contact us to confirm the current price and availability.',
+  PRICE_CHANGED: 'The price has changed. Please review the updated total before starting checkout again.',
   CHECKOUT_KEY_REUSED: 'This checkout no longer matches your bag. Please contact us before starting another payment.',
   CHECKOUT_REVIEW_REQUIRED: 'This checkout needs to be checked. Please contact us before starting another payment.',
   CHECKOUT_EXPIRED: 'This checkout has expired. Please try again to start a new checkout.',
   CHECKOUT_UNAVAILABLE: 'Checkout is currently unavailable. Your bag has been saved; please try again later.',
 };
+
+export class CheckoutRequestError extends Error {
+  constructor(public code: string) { super(errors[code] || errors.CHECKOUT_UNAVAILABLE); }
+}
+
+export function checkoutNeedsPriceRefresh(error: unknown): boolean {
+  return error instanceof CheckoutRequestError && error.code === 'PRICE_CHANGED';
+}
+
+/** This action cannot create a browser retry key or submit a new-order price. */
+export async function resumeExistingCheckout(
+  lines: CheckoutRequestLine[], request: typeof fetch = fetch, storage?: CheckoutAttemptStorage,
+): Promise<string> {
+  let attempts: CheckoutAttemptStorage;
+  try { attempts = storage ?? globalThis.sessionStorage; }
+  catch { throw new CheckoutRequestError('CHECKOUT_UNAVAILABLE'); }
+  if (!hasCheckoutAttempt(lines, attempts)) throw new CheckoutRequestError('CHECKOUT_UNAVAILABLE');
+  return requestCheckout(lines.map(({ id, qty }) => ({ id, qty })), request, attempts);
+}
 
 export async function requestCheckout(
   lines: CheckoutRequestLine[], request: typeof fetch = fetch, storage?: CheckoutAttemptStorage,
@@ -42,7 +69,7 @@ export async function requestCheckout(
   const response = await request('/api/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ checkoutKey, lines: lines.map(({ id, qty }) => ({ id, qty })) }),
+    body: JSON.stringify({ checkoutKey, lines: lines.map(({ id, qty, expectedAmountPence }) => ({ id, qty, expectedAmountPence })) }),
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -50,7 +77,7 @@ export async function requestCheckout(
       // Only a server-confirmed expired session permits a fresh key on a later user action.
       attempts.removeItem(attemptStorageKey(lines));
     }
-    throw new Error(errors[data?.error] || errors.CHECKOUT_UNAVAILABLE);
+    throw new CheckoutRequestError(data?.error);
   }
   if (typeof data?.id !== 'string' || !/^cs_(?:test_|live_)?[A-Za-z0-9]+$/.test(data.id) || data.id.length > 256) {
     throw new Error(errors.CHECKOUT_UNAVAILABLE);

@@ -1,5 +1,5 @@
 import type Stripe from 'stripe';
-import type { Order } from './orders.js';
+import type { Order, ReserveOrderInput } from './orders.js';
 import { CHECKOUT_MARKER, CheckoutError, paymentStatus, type CheckoutLine } from './checkout.js';
 
 type StripeSession = Pick<Stripe.Checkout.Session,
@@ -7,10 +7,8 @@ type StripeSession = Pick<Stripe.Checkout.Session,
 
 export type CheckoutOrderDependencies = {
   getOrderByCheckoutKey: (key: string) => Promise<Order | null>;
-  quote: (lines: CheckoutLine[]) => Promise<Array<{ itemId: string; amountPence: number }>>;
-  reserveOrder: (input: {
-    checkoutKey: string; checkoutOrigin: string; lines: Array<{ itemId: string; amountPence: number }>;
-  }) => Promise<Order>;
+  quote: (lines: CheckoutLine[]) => Promise<ReserveOrderInput['lines']>;
+  reserveOrder: (input: ReserveOrderInput) => Promise<Order>;
   attachCheckoutSession: (orderId: string, sessionId: string) => Promise<Order>;
   createSession: (params: Stripe.Checkout.SessionCreateParams, idempotencyKey: string) => Promise<StripeSession>;
   retrieveSession: (id: string) => Promise<StripeSession>;
@@ -56,7 +54,11 @@ export function stripeOrderParameters(order: Order): Stripe.Checkout.SessionCrea
       price_data: {
         currency: order.currency,
         unit_amount: line.amountPence,
-        product_data: { name: line.title, metadata: { item_id: line.itemId } },
+        product_data: {
+          name: line.title, metadata: { item_id: line.itemId },
+          // Do not add parameters to old unresolved Stripe idempotency requests.
+          ...(line.pricing ? { description: 'UK delivery included' } : {}),
+        },
       },
     })),
     metadata: { checkout_origin: CHECKOUT_MARKER, order_id: order.id },

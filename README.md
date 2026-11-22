@@ -6,7 +6,8 @@ Gemini-assisted description drafts and a guarded Stripe integration.
 The business sources watches from eBay after a customer places an order.
 The recovery branch is **not ready to accept real orders**. Checkout defaults
 to disabled and permits test-mode keys only. Durable test orders, reservations
-and signed webhooks are implemented; live sourcing, refunds and pricing are not.
+and signed webhooks are implemented. Preview retail pricing is implemented;
+live sourcing and refunds are not.
 
 ## Current position — 22 November 2026
 
@@ -36,8 +37,10 @@ Stripe sandbox credentials and a test snapshot webhook are configured only for
 this preview branch. Signature, timestamp and direct callback-routing checks
 passed before enabling test checkout. Real keys/events remain rejected in code.
 Sandbox payments consume only preview reservations and never buy from eBay.
-The validation procedure below covers the complete payment lifecycle; a healthy
-endpoint alone is not proof that a payment and its signed event were processed.
+Hosted sandbox payment, actual signed completion/expiry events and replay checks
+passed. The paid test item remains sold only in preview. The validation procedure
+below covers further material changes; a healthy endpoint alone is not proof
+that a payment and its signed event were processed.
 
 The duplicate Vercel projects `modernvintagewatches-us88` and
 `modernvintagewatches-z9u1` initially returned empty inventory using the old
@@ -48,11 +51,11 @@ ephemeral fallback. They are not the recovery target and have not been deleted.
 Use Node 24.x and the existing dependency lockfile:
 
 ```sh
-npm ci
-npm run typecheck
-npm test
-npm run build
-npm run dev
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm dev
 ```
 
 The recovery branch pins `engines.node` to `24.x`, matching the local verification
@@ -62,8 +65,7 @@ new deployments. Vercel stopped accepting new Node 20 deployments on 1 October
 [Vercel deprecation notice](https://vercel.com/changelog/node-js-20-is-being-deprecated)
 and [runtime version configuration](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions).
 
-Alternatively use `pnpm install --frozen-lockfile`, then the same scripts via
-`pnpm run`. Vite alone serves the frontend; it does not execute Vercel `/api`
+Vite alone serves the frontend; it does not execute Vercel `/api`
 functions. Use a Vercel preview or the Vercel development runtime for integrated
 testing. Tests compile TypeScript into ignored `.test-build/`. They mock external
 network boundaries and execute the order migration in PGlite, a local PostgreSQL
@@ -71,8 +73,8 @@ engine; they do not contact live Supabase, Stripe or eBay. The SQL tests validat
 transactional outcomes and permissions, but do not simulate independent database
 connections racing. Lock ordering has also been reviewed.
 
-The recorded local regression run passed 90/90 tests, and the recorded Vite
-production build passed. These are separate from deployed browser/payment checks.
+Run the regression suite and production build after changes. These are separate
+from deployed browser/payment checks; retain the resulting evidence for each deployment.
 
 Copy `.env.example` to `.env.local` for local configuration. Server credentials
 must stay server-side: never prefix them with `VITE_` or commit them. In Vercel,
@@ -132,6 +134,57 @@ a read-only schema/permission audit. Inspect the actual database and take a back
 before applying a migration. Never run schema setup just to conceal a wrong
 project or an unavailable database.
 
+## Preview pricing and UK delivery
+
+MVW confirmed that it is **not VAT registered**. The supported preview policy is
+`mvw-pricing-v1`: a **20% gross margin**, equivalent to 25% markup on the cost
+basis, with UK delivery included. It is a starting commercial recommendation,
+not a claim that every eBay retail listing is competitive at the resulting price.
+
+For each watch, in integer pence:
+
+```
+cost basis = source watch price + source postage + delivery allowance
+retail = round up to the next £5 (cost basis / (1 - gross margin))
+estimated card fee = round up (retail × 3.5%) + £0.20
+estimated contribution = retail - cost basis - estimated card fee
+```
+
+The initial delivery/packing allowance is **£50 per watch**, retained for each
+line of a multi-watch basket. Source postage is the inbound procurement cost;
+it is distinct from delivery to the customer. Customers see one retail price
+and UK delivery included, with no extra checkout delivery or card surcharge.
+The fee estimate is a conservative planning allowance, not a tax or provider
+quote. The 20p estimate is allocated per watch, conservatively overestimating
+the fixed fee for a multi-watch payment. Estimated contribution is before
+overheads, sourcing work, returns, repairs and tax; it is not net profit.
+
+Example: Tudor source £2,709.70 + source postage £15.95 + allowance £50 gives
+£3,470 retail, £694.35 gross profit and £572.70 estimated contribution after
+the £121.65 card-fee allowance. At this price the customer pays no extra shipping.
+
+Admin settings control the gross margin and allowances; invalid values fail
+closed. Source prices are never overwritten. Public prices and checkout use
+the same calculation. New orders atomically preserve the cost and policy
+breakdown; changes to inventory/settings do not reprice historical orders or
+their Stripe sessions. A stale displayed amount must be reviewed before a new
+payment. Historical lines without pricing snapshots remain explicitly legacy.
+
+The allowance does **not** constitute an insured-carriage booking. Royal Mail
+Special Delivery has up to £2,500 goods compensation; its £10,000 option is
+consequential-loss cover, not increased cover for the watch. Higher-value
+contents require a confirmed specialist arrangement, considering the full
+parcel value. Confirm actual cost, coverage, packing and dispatch timing in the
+sourcing workflow before taking real orders. No next-day-from-order promise
+is made. UK-only checkout is enforced by Stripe's GB shipping-country restriction.
+
+Sources checked 22 November 2026:
+- [Stripe UK pricing](https://stripe.com/gb/pricing): standard UK cards 1.5% + 20p;
+  premium UK 2.8% + 20p; international cards 3.15% + 20p, with additional conversion fees where applicable.
+- [Royal Mail service and cover](https://www.royalmail.com/sending/uk/special-delivery-guaranteed-1pm)
+  and [October 2026 tariff](https://www.royalmail.com/sites/royalmail.com/files/2026-10/online-price-guide-october-2026-v1.pdf).
+- [Parcel Pro UK specialist quote](https://www.parcelpro.com/gb/en/insured-shipping/get-a-quote.html).
+
 ## Isolated preview validation
 
 Database isolation, the preview migration, browser/admin checks, source refresh
@@ -148,6 +201,13 @@ validation procedure for further deployments and complete Stripe test payments.
    also enables RLS on items/settings/logs and revokes browser-role access. The
    server uses its service-role key. Review this change against any other clients
    before applying it to an existing project. Standard Supabase roles are required.
+   Then apply `db/migrations/20261122_retail_pricing.sql`. Preserve an encrypted
+   backup first. Save the full pricing settings on the `default` settings row:
+   20% category margins, £50 delivery allowance, 350 basis-point fee allowance,
+   20p fixed fee allowance, 500p rounding and `NOT_REGISTERED` VAT status. This
+   migration adds nullable pricing snapshots and replaces reservation calculation;
+   existing orders, amounts and Stripe parameters must remain unchanged. Apply
+   this only to the intended isolated preview before deploying the pricing code.
 3. Deploy this branch as a preview with test database credentials, admin secrets,
    valid eBay credentials and `CHECKOUT_ENABLED=false`. Set `PUBLIC_SITE_URL` to
    that preview's trusted HTTPS origin. Verify `/api/health` reports both inventory
@@ -193,10 +253,10 @@ in Stripe at this stage.
    customer-visible cancellation/refund path. The implemented paid state waits
    for sourcing review. eBay availability checks cannot reserve another seller's
    inventory. Do not automate source purchases without an explicit workflow.
-4. Define the retail pricing policy. `price_gbp` is currently the source price;
-   configured margins are not applied to the storefront/checkout. Source
-   shipping, payment fees and the intended margin need explicit treatment before
-   accepting money. No margin was silently invented in this patch.
+4. Review market competitiveness of the preview prices and obtain actual insured
+   delivery quotes. `price_gbp` remains the source price; retail uses the policy
+   above. Revisit tax treatment if VAT registration changes; no VAT margin-scheme
+   or standard-VAT accounting is implemented or claimed.
 5. Complete product copy review, navigation/content and end-to-end sales testing.
    Plan the production order migration separately before promoting this recovery
    code. Live checkout remains blocked; no domain migration is part of this work.

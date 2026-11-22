@@ -21,6 +21,7 @@ export default async function handler(req: any, res: any) {
         amountPence: line.amountPence,
         sourceUrl: line.sourceUrl,
         ebayItemId: line.ebayItemId,
+        pricing: line.pricing ?? null,
       })),
     })) });
   } catch {

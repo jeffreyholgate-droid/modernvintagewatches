@@ -1,10 +1,12 @@
 import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
-import { getItemById, updateItem } from '../_lib/db.js';
+import { getItemById, updateItem, getSettings } from '../_lib/db.js';
 import { verifyAdminToken } from '../_lib/auth.js';
 import { PublishState } from '../../types.js';
+import { pricedItem } from '../_lib/pricing.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
+  res.setHeader('Cache-Control', 'no-store');
 
   const id = req.query?.id;
   if (typeof id !== 'string') return json(res, 400, { error: 'BAD_REQUEST' });
@@ -35,7 +37,7 @@ export default async function handler(req: any, res: any) {
     try {
       await updateItem(id, allowed);
       const updated = await getItemById(id);
-      return json(res, 200, { item: updated });
+      return json(res, 200, { item: updated ? pricedItem(updated, await getSettings(), true) : null });
     } catch {
       return json(res, 503, { error: 'INVENTORY_UNAVAILABLE' });
     }
@@ -49,17 +51,22 @@ export default async function handler(req: any, res: any) {
   }
   if (!item) return json(res, 404, { error: 'NOT_FOUND' });
 
-  // Reserved/sold inventory is available to admins only, even if still published.
-  if (item.publishStatus !== PublishState.PUBLISHED || item.status !== 'ACTIVE') {
-    const header = req.headers?.authorization || req.headers?.Authorization;
-    const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : '';
-    if (!token) return json(res, 404, { error: 'NOT_FOUND' });
+  const header = req.headers?.authorization || req.headers?.Authorization;
+  const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : '';
+  let isAdmin = false;
+  if (token) {
     try {
       await verifyAdminToken(token);
+      isAdmin = true;
     } catch {
-      return json(res, 404, { error: 'NOT_FOUND' });
+      return item.publishStatus !== PublishState.PUBLISHED || item.status !== 'ACTIVE'
+        ? json(res, 404, { error: 'NOT_FOUND' }) : json(res, 401, { error: 'UNAUTHORIZED' });
     }
   }
-
-  return json(res, 200, { item });
+  // Reserved/sold inventory is available to admins only, even if still published.
+  if (!isAdmin && (item.publishStatus !== PublishState.PUBLISHED || item.status !== 'ACTIVE')) {
+    return json(res, 404, { error: 'NOT_FOUND' });
+  }
+  try { return json(res, 200, { item: pricedItem(item, await getSettings(), isAdmin) }); }
+  catch { return json(res, 503, { error: 'INVENTORY_UNAVAILABLE' }); }
 }

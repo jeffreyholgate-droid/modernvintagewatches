@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Category, PublishState, EbayItem } from '../../types.js';
 import type { InventoryRefreshPlan } from '../../server/inventory-refresh.js';
+import { DEFAULT_PRICING_POLICY, normalizePricingPolicy, marginBasisPoints, type PricingPolicy } from './pricing.js';
 
 export interface AppStateItem extends EbayItem {
   titleBoutique?: string;
@@ -16,7 +17,8 @@ export interface Settings {
   marginPercent: Record<Category, number>;
   sellerMinFeedback: number;
   sellerMinScore: number;
-  vatMode: 'STANDARD' | 'MARGIN_SCHEME';
+  vatMode: 'NOT_REGISTERED';
+  pricingPolicy: PricingPolicy;
   blockKeywords: string;
 }
 
@@ -24,10 +26,11 @@ const DEFAULT_SETTINGS: Settings = {
   priceMin: { [Category.WATCH]: 2000, [Category.HANDBAG]: 2000, [Category.JEWELLERY]: 2000 },
   priceMax: { [Category.WATCH]: 50000, [Category.HANDBAG]: 50000, [Category.JEWELLERY]: 50000 },
   publishTarget: 80,
-  marginPercent: { [Category.WATCH]: 15, [Category.HANDBAG]: 20, [Category.JEWELLERY]: 25 },
+  marginPercent: { [Category.WATCH]: 20, [Category.HANDBAG]: 20, [Category.JEWELLERY]: 20 },
   sellerMinFeedback: 99,
   sellerMinScore: 200,
-  vatMode: 'MARGIN_SCHEME',
+  vatMode: 'NOT_REGISTERED',
+  pricingPolicy: DEFAULT_PRICING_POLICY,
   blockKeywords: 'replica,fake,copy,aftermarket,custom,diamond set,ice,lab,moissanite'
 };
 
@@ -95,13 +98,51 @@ export async function getLogs(limit = 50) {
 
 export async function getSettings(): Promise<Settings> {
   const supabase = getSupabase();
-  if (!supabase) return mem.settings;
+  if (!supabase) return normalizeSettings(mem.settings);
   const { data, error } = await supabase.from('settings').select('data').eq('id', 'default').single();
   if (error && error.code !== 'PGRST116') throw error; // not found
-  return (data?.data as Settings) || DEFAULT_SETTINGS;
+  return normalizeSettings(data?.data || DEFAULT_SETTINGS);
+}
+
+export function normalizeSettings(value: unknown, forWrite = false): Settings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('INVALID_SETTINGS');
+  const data = value as Record<string, any>;
+  const categories = new Set<string>(Object.values(Category));
+  for (const key of ['priceMin', 'priceMax', 'marginPercent']) {
+    const map = data[key];
+    if (map !== undefined && (!map || typeof map !== 'object' || Array.isArray(map) ||
+        Object.keys(map).some(category => !categories.has(category)))) throw new Error('INVALID_SETTINGS');
+  }
+  if (forWrite && (data.pricingPolicy === undefined || data.vatMode !== 'NOT_REGISTERED')) {
+    throw new Error('INVALID_SETTINGS');
+  }
+  const next: Settings = {
+    priceMin: { ...DEFAULT_SETTINGS.priceMin, ...data.priceMin },
+    priceMax: { ...DEFAULT_SETTINGS.priceMax, ...data.priceMax },
+    marginPercent: { ...DEFAULT_SETTINGS.marginPercent, ...data.marginPercent },
+    publishTarget: data.publishTarget ?? DEFAULT_SETTINGS.publishTarget,
+    sellerMinFeedback: data.sellerMinFeedback ?? DEFAULT_SETTINGS.sellerMinFeedback,
+    sellerMinScore: data.sellerMinScore ?? DEFAULT_SETTINGS.sellerMinScore,
+    blockKeywords: data.blockKeywords ?? DEFAULT_SETTINGS.blockKeywords,
+    vatMode: 'NOT_REGISTERED',
+    pricingPolicy: normalizePricingPolicy(data.pricingPolicy),
+  };
+  for (const category of Object.values(Category)) {
+    const min = next.priceMin[category], max = next.priceMax[category];
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min < 0 || max < min || max > 999999.99) {
+      throw new Error('INVALID_SETTINGS');
+    }
+    marginBasisPoints(next.marginPercent[category]);
+  }
+  if (!Number.isInteger(next.publishTarget) || next.publishTarget < 0 || next.publishTarget > 10000 ||
+      !Number.isFinite(next.sellerMinFeedback) || next.sellerMinFeedback < 0 || next.sellerMinFeedback > 100 ||
+      !Number.isInteger(next.sellerMinScore) || next.sellerMinScore < 0 || next.sellerMinScore > 100000000 ||
+      typeof next.blockKeywords !== 'string' || next.blockKeywords.length > 10000) throw new Error('INVALID_SETTINGS');
+  return next;
 }
 
 export async function saveSettings(next: Settings): Promise<void> {
+  next = normalizeSettings(next, true);
   const supabase = getSupabase();
   if (!supabase) { mem.settings = next; return; }
   const { error } = await supabase.from('settings').upsert({ id: 'default', data: next }, { onConflict: 'id' });

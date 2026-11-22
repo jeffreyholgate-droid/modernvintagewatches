@@ -1,4 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { Category } from '../../types.js';
+import { pricingForItem, type PricingQuote } from './pricing.js';
 
 export type OrderStatus = 'pending_payment' | 'paid_awaiting_source' | 'expired' | 'payment_review';
 export type OrderLine = {
@@ -7,6 +9,8 @@ export type OrderLine = {
   amountPence: number;
   sourceUrl: string;
   ebayItemId: string;
+  /** Missing on historical orders. Never infer historical source costs. */
+  pricing?: PricingQuote | null;
 };
 export type Order = {
   id: string;
@@ -23,7 +27,7 @@ export type AdminOrder = Omit<Order, 'checkoutKey'>;
 export type ReserveOrderInput = {
   checkoutKey: string;
   checkoutOrigin: string;
-  lines: Array<{ itemId: string; amountPence: number }>;
+  lines: Array<{ itemId: string; amountPence: number; pricing: PricingQuote }>;
 };
 export type StripeEventInput = {
   eventId: string;
@@ -40,6 +44,7 @@ export type StripeEventInput = {
 const knownErrors = new Set([
   'INVALID_ORDER', 'INVALID_EVENT', 'ITEM_UNAVAILABLE', 'ITEM_CHANGED', 'CHECKOUT_KEY_REUSED',
   'ORDER_NOT_FOUND', 'SESSION_CONFLICT', 'ORDER_UNAVAILABLE', 'ORDER_SESSION_PENDING',
+  'PRICE_CHANGED', 'INVALID_PRICING_SETTINGS',
 ]);
 export class OrderError extends Error {
   constructor(public code: string) { super(code); }
@@ -52,6 +57,27 @@ const eventTypes = new Set(['checkout.session.completed', 'checkout.session.asyn
 
 function requireUuid(value: string, code = 'INVALID_ORDER') {
   if (typeof value !== 'string' || !uuid.test(value)) throw new OrderError(code);
+}
+
+function parsePricing(value: any, amountPence: number, code = 'ORDER_STORAGE_UNAVAILABLE'): PricingQuote | null {
+  if (value === null || value === undefined) return null;
+  try {
+    if (typeof value !== 'object' || Array.isArray(value) || value.policyVersion !== 'mvw-pricing-v1') throw new Error();
+    const margin = value.marginBps / 100;
+    const canonical = pricingForItem({
+      priceGbp: value.sourceItemPence / 100, shippingGbp: value.sourceShippingPence / 100, category: Category.WATCH,
+    }, {
+      marginPercent: { WATCH: margin, HANDBAG: margin, JEWELLERY: margin },
+      pricingPolicy: {
+        version: value.policyVersion, deliveryAllowancePence: value.deliveryAllowancePence,
+        feeAllowanceBps: value.feeAllowanceBps, feeFixedPence: value.feeFixedPence,
+        roundingPence: value.roundingPence, vatMode: value.vatMode,
+      },
+    });
+    if (canonical.retailPricePence !== amountPence ||
+        Object.entries(canonical).some(([key, expected]) => value[key] !== expected)) throw new Error();
+    return canonical;
+  } catch { throw new OrderError(code); }
 }
 
 function client(): SupabaseClient {
@@ -98,6 +124,7 @@ function parseOrder(value: any, admin = false): Order | AdminOrder {
     lines: value.lines.map((line: any) => ({
       itemId: line.itemId, title: line.title, amountPence: line.amountPence,
       sourceUrl: line.sourceUrl, ebayItemId: line.ebayItemId,
+      pricing: parsePricing(line.pricing, line.amountPence),
     })),
   };
   return admin ? order : { ...order, checkoutKey: value.checkoutKey };
@@ -130,7 +157,11 @@ export async function reserveOrder(input: ReserveOrderInput): Promise<Order> {
     input.lines.reduce((total, line) => total + line.amountPence, 0) > 99999999) throw new OrderError('INVALID_ORDER');
   return parseOrder(await rpc('mvw_reserve_order', {
     p_checkout_key: input.checkoutKey, p_checkout_origin: input.checkoutOrigin,
-    p_lines: input.lines.map(({ itemId, amountPence }) => ({ itemId, amountPence })),
+    p_lines: input.lines.map(({ itemId, amountPence, pricing }) => {
+      const canonical = parsePricing(pricing, amountPence, 'INVALID_ORDER');
+      if (!canonical) throw new OrderError('INVALID_ORDER');
+      return { itemId, amountPence, pricing: canonical };
+    }),
   })) as Order;
 }
 
@@ -173,7 +204,7 @@ export async function checkOrdersDatabase(): Promise<void> {
     const db = client();
     const checks = await Promise.all([
       db.from('orders').select('id,checkout_key,checkout_origin,status,total_pence,currency,stripe_session_id,created_at').limit(1),
-      db.from('order_lines').select('order_id,item_id,title,amount_pence,source_url,ebay_item_id').limit(1),
+      db.from('order_lines').select('order_id,item_id,title,amount_pence,source_url,ebay_item_id,pricing_snapshot').limit(1),
       db.from('inventory_reservations').select('item_id,order_id,created_at').limit(1),
       db.from('stripe_events').select('event_id,event_type,order_id,session_id,amount_total,currency,payment_status,livemode').limit(1),
     ]);
