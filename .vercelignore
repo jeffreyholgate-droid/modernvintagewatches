@@ -1,0 +1,9 @@
+# Deploy source files; Vercel installs dependencies and builds fresh output.
+.test-build
+dist
+node_modules
+.vercel
+.git
+.env*
+logs
+*.log

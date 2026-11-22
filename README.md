@@ -33,7 +33,7 @@ deployment bookmarks can expire; use the stable alias above.
 
 ## Development and verification
 
-Use Node 20 or newer and the existing dependency lockfile:
+Use Node 24.x and the existing dependency lockfile:
 
 ```sh
 npm ci
@@ -42,6 +42,13 @@ npm test
 npm run build
 npm run dev
 ```
+
+The recovery branch pins `engines.node` to `24.x`, matching the local verification
+runtime. This overrides the main Vercel project's existing `20.x` setting for
+new deployments. Vercel stopped accepting new Node 20 deployments on 1 October
+2026; already-deployed Node 20 functions continue to run. See the
+[Vercel deprecation notice](https://vercel.com/changelog/node-js-20-is-being-deprecated)
+and [runtime version configuration](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions).
 
 Alternatively use `pnpm install --frozen-lockfile`, then the same scripts via
 `pnpm run`. Vite alone serves the frontend; it does not execute Vercel `/api`
