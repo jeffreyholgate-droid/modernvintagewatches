@@ -192,7 +192,7 @@ function WatchGallery({ photos, title }: { photos: ReturnType<typeof displayWatc
   const activeIndex = Math.min(index, Math.max(0, photos.length - 1));
   const selected = photos[activeIndex];
   return <>
-    <WatchPhoto photo={selected && original ? { ...selected, tone: 'original' } : selected}
+    <WatchPhoto photo={selected && original ? { url: selected.url, tone: 'original' } : selected}
       alt={photos.length > 1 ? `${title} · photo ${activeIndex + 1}` : title} eager />
     {photos.length > 1 && <div className="mt-3 flex flex-wrap gap-2" aria-label="Watch photos">
       {photos.map((photo, i) => <button key={photo.url} type="button" onClick={() => setIndex(i)}
@@ -203,9 +203,9 @@ function WatchGallery({ photos, title }: { photos: ReturnType<typeof displayWatc
     </div>}
     <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
       <p>Photos supplied by the source seller.</p>
-      {selected?.tone && selected.tone !== 'original' &&
+      {selected && (selected.mask || selected.tone !== 'original') &&
         <button type="button" onClick={() => setOriginal(value => !value)} className="underline">
-          {original ? 'Show studio lighting' : 'Show original lighting'}
+          {original ? 'Show studio version' : 'Show original photo'}
         </button>}
       {selected && <a href={selected.url} target="_blank" rel="noopener noreferrer" className="underline">Open original photo</a>}
     </div>

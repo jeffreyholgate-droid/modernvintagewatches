@@ -90,7 +90,7 @@ const Bag: React.FC = () => {
               {cart.state.lines.map((l) => (
                 <div key={l.id} className="flex gap-5 border-b border-line pb-6">
                   <div className="w-20 sm:w-28 shrink-0">
-                    <WatchPhoto photo={l.imageUrl ? { url: l.imageUrl, tone: l.imageTone ?? 'original' } : undefined} alt={l.title} />
+                    <WatchPhoto photo={l.imageUrl ? { url: l.imageUrl, tone: l.imageTone ?? 'original', mask: l.imageMask } : undefined} alt={l.title} />
                   </div>
                   <div className="flex-1">
                     <div className="flex justify-between gap-6">

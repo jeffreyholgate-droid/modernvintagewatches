@@ -43,7 +43,7 @@ export default async function handler(req: any, res: any) {
         const current = await getItemById(id);
         if (!current || current.category !== Category.WATCH) return json(res, 404, { error: 'NOT_FOUND' });
         const urls = watchPhotoUrls(current.imageUrls);
-        const photos = parsePhotoReview(patch.photoReview, urls);
+        const photos = parsePhotoReview(patch.photoReview, urls, true);
         if (!photos || current.imageUrls.some(url => !urls.includes(url))) {
           return json(res, 409, { error: 'PHOTO_REVIEW_REQUIRED' });
         }

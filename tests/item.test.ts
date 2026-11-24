@@ -125,7 +125,11 @@ test('publishing requires review of every current photo and rejects a stale writ
     assert.equal(unreviewed.status, 409);
     assert.equal(unreviewed.body.error, 'PHOTO_REVIEW_REQUIRED');
     assert.equal(writes, 0);
-    const stale = await request('PATCH', token, { publishStatus: 'PUBLISHED', photoReview: [{ url, tone: 'soft-light' }] });
+    const toneOnly = await request('PATCH', token, { publishStatus: 'PUBLISHED', photoReview: [{ url, tone: 'soft-light' }] });
+    assert.equal(toneOnly.status, 409);
+    assert.equal(writes, 0);
+    const mask = { width: 800, height: 600, outlines: [[[20, 20], [800, 20], [400, 900]]] };
+    const stale = await request('PATCH', token, { publishStatus: 'PUBLISHED', photoReview: [{ url, tone: 'soft-light', mask }] });
     assert.equal(stale.status, 409);
     assert.equal(stale.body.error, 'LISTING_CHANGED');
     assert.equal(writes, 1);

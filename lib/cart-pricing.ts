@@ -1,4 +1,4 @@
-import { displayWatchPhotos, photoTones, type PhotoTone } from './watch-photos.js';
+import { displayWatchPhotos, parsePhotoMask, photoTones, type PhotoMask, type PhotoTone } from './watch-photos.js';
 
 export type PublicPrice = {
   policyVersion: string;
@@ -13,6 +13,7 @@ export type CartLine = {
   title: string;
   imageUrl?: string;
   imageTone?: PhotoTone;
+  imageMask?: PhotoMask;
   qty: 1;
   retailPricePence: number | null;
   policyVersion: string | null;
@@ -45,6 +46,7 @@ export function restoreCart(value: unknown): CartLine[] {
     id: line.id, title: typeof line.title === 'string' ? line.title : 'Watch',
     imageUrl: typeof line.imageUrl === 'string' ? line.imageUrl : undefined, qty: 1,
     imageTone: photoTones.includes(line.imageTone) ? line.imageTone : undefined,
+    imageMask: parsePhotoMask(line.imageMask) ?? undefined,
     retailPricePence: null, policyVersion: null, pricingStatus: 'unchecked',
   }));
 }
@@ -53,7 +55,7 @@ export function quotedCartLine(item: any): CartLine | null {
   const price = publicPrice(item);
   if (!price || typeof item?.id !== 'string' || item.status !== 'ACTIVE' || item.publishStatus !== 'PUBLISHED') return null;
   const photo = displayWatchPhotos(item.imageUrls, item.photoReview)[0];
-  return { id: item.id, title: item.titleBoutique || item.titleRaw || 'Watch', imageUrl: photo?.url, imageTone: photo?.tone, qty: 1,
+  return { id: item.id, title: item.titleBoutique || item.titleRaw || 'Watch', imageUrl: photo?.url, imageTone: photo?.tone, imageMask: photo?.mask, qty: 1,
     retailPricePence: price.retailPricePence, policyVersion: price.policyVersion, pricingStatus: 'ready' };
 }
 

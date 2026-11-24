@@ -1,6 +1,51 @@
 export const photoTones = ['original', 'soft-light', 'soft-highlights'] as const;
 export type PhotoTone = typeof photoTones[number];
-export type WatchPhoto = { url: string; tone: PhotoTone };
+export type MaskPoint = [number, number];
+export type PhotoMask = { width: number; height: number; outlines: MaskPoint[][] };
+export type WatchPhoto = { url: string; tone: PhotoTone; mask?: PhotoMask };
+
+export const MAX_OUTLINES = 8;
+export const MAX_MASK_POINTS = 160;
+
+export function validOutline(points: unknown): points is MaskPoint[] {
+  if (!Array.isArray(points) || points.length < 3 || points.length > MAX_MASK_POINTS ||
+      points.some(point => !Array.isArray(point) || point.length !== 2 ||
+        point.some(value => !Number.isInteger(value) || value < 0 || value > 1000))) return false;
+  const twiceArea = points.reduce((sum, [x, y], i) => {
+    const [nx, ny] = points[(i + 1) % points.length];
+    return sum + x * ny - nx * y;
+  }, 0);
+  return Math.abs(twiceArea) >= 16;
+}
+
+export function parsePhotoMask(value: unknown): PhotoMask | null {
+  if (!value || typeof value !== 'object') return null;
+  const { width, height, outlines } = value as PhotoMask;
+  if (!Number.isInteger(width) || width < 1 || width > 16000 ||
+      !Number.isInteger(height) || height < 1 || height > 16000 ||
+      !Array.isArray(outlines) || outlines.length < 1 || outlines.length > MAX_OUTLINES ||
+      !outlines.every(validOutline)) return null;
+  return { width, height, outlines: outlines.map(points => points.map(([x, y]) => [x, y])) };
+}
+
+export function maskPath(mask: PhotoMask) {
+  return mask.outlines.map(points =>
+    points.map(([x, y], i) => `${i ? 'L' : 'M'}${x * mask.width / 1000} ${y * mask.height / 1000}`).join(' ') + ' Z'
+  ).join(' ');
+}
+
+/** Centre and scale all retained shapes together without clipping their edges. */
+export function maskViewBox(mask: PhotoMask): string {
+  const points = mask.outlines.flat();
+  const xs = points.map(([x]) => x * mask.width / 1000);
+  const ys = points.map(([, y]) => y * mask.height / 1000);
+  const left = Math.min(...xs);
+  const top = Math.min(...ys);
+  const width = Math.max(...xs) - left;
+  const height = Math.max(...ys) - top;
+  const padding = Math.max(width, height) * 0.06;
+  return [left - padding, top - padding, width + 2 * padding, height + 2 * padding].join(' ');
+}
 
 export const photoToneLabels: Record<PhotoTone, string> = {
   original: 'Original lighting',
@@ -20,13 +65,15 @@ export function watchPhotoUrls(value: unknown): string[] {
 }
 
 /** Require explicit review of the complete photo set, including detail shots. */
-export function parsePhotoReview(value: unknown, urls: string[]): WatchPhoto[] | null {
+export function parsePhotoReview(value: unknown, urls: string[], requireBackground = false): WatchPhoto[] | null {
   if (!Array.isArray(value) || !urls.length || value.length !== urls.length) return null;
   const photos: WatchPhoto[] = [];
   const remaining = new Set(urls);
   for (const photo of value) {
     if (!photo || !remaining.delete(photo.url) || !photoTones.includes(photo.tone)) return null;
-    photos.push({ url: photo.url, tone: photo.tone });
+    const mask = parsePhotoMask(photo.mask);
+    if (!mask && (requireBackground || photo.mask !== undefined)) return null;
+    photos.push({ url: photo.url, tone: photo.tone, ...(mask ? { mask } : {}) });
   }
   return photos;
 }
