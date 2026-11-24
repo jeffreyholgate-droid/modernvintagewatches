@@ -113,3 +113,21 @@ test('PATCH preserves its existing allowed field surface and returns the saved i
     for (const disallowed of ['status', 'price_gbp', 'id']) assert.equal(Object.hasOwn(savedPatch, disallowed), false);
   });
 });
+
+test('publishing requires review of every current photo and rejects a stale write', async () => {
+  const url = 'https://example.com/front.jpg';
+  let writes = 0;
+  await withDatabase((method) => {
+    if (method === 'PATCH') { writes++; return Response.json([]); }
+    return Response.json(row({ publish_state: 'DRAFT', image_urls: [url] }));
+  }, async token => {
+    const unreviewed = await request('PATCH', token, { publishStatus: 'PUBLISHED' });
+    assert.equal(unreviewed.status, 409);
+    assert.equal(unreviewed.body.error, 'PHOTO_REVIEW_REQUIRED');
+    assert.equal(writes, 0);
+    const stale = await request('PATCH', token, { publishStatus: 'PUBLISHED', photoReview: [{ url, tone: 'soft-light' }] });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.error, 'LISTING_CHANGED');
+    assert.equal(writes, 1);
+  });
+});

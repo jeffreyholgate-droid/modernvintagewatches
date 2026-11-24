@@ -2,6 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+.watch-photo-frame {
+  background: radial-gradient(ellipse at 50% 36%, #faf8f4 0%, #eeebe5 100%);
+  border: 1px solid var(--mvw-line);
+  aspect-ratio: 1;
+  padding: 7%;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+}
+
+.watch-photo-frame > img {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+}
+
+/* Whole-frame luminance adjustments, with room at both ends of the tonal range. */
+.watch-photo-frame > img[data-tone='soft-light'] {
+  filter: contrast(.92) brightness(1.035);
+}
+
+.watch-photo-frame > img[data-tone='soft-highlights'] {
+  filter: contrast(.96) brightness(.985);
+}
+
 
 :root {
   --mvw-bg: #ffffff;

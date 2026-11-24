@@ -1,6 +1,7 @@
 import { PublishState } from '../types';
 import type { PricingQuote } from '../api/_lib/pricing';
 import type { Operation, OperationState, RefundReason, SourceCheck } from '../api/_lib/order-operations';
+import type { WatchPhoto } from './watch-photos';
 
 const TOKEN_KEY = 'chronos_admin_token';
 const AUTH_CHANGE = 'mvw-admin-auth-change';
@@ -89,7 +90,9 @@ export async function fetchItem(id: string, admin = false) {
   return item;
 }
 
-export async function patchItem(id: string, patch: Partial<{ publishStatus: PublishState; titleBoutique: string; description: string; score: number }>) {
+export async function patchItem(id: string, patch: Partial<{
+  publishStatus: PublishState; titleBoutique: string; description: string; score: number; photoReview: WatchPhoto[];
+}>) {
   const { item } = await request<{ item: any }>(`/api/item/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),

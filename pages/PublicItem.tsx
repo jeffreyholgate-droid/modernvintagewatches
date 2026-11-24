@@ -4,6 +4,8 @@ import { fetchItem } from '../lib/api';
 import { useCart } from '../lib/cart';
 import { checkoutErrorMessage, checkoutNeedsPriceRefresh, requestCheckout } from '../lib/checkout';
 import { formatPence, publicPrice, quotedCartLine } from '../lib/cart-pricing';
+import { displayWatchPhotos } from '../lib/watch-photos';
+import { WatchPhoto } from './WatchPhoto';
 
 const PublicItem: React.FC = () => {
   const { id } = useParams();
@@ -45,7 +47,7 @@ const PublicItem: React.FC = () => {
   }, [id, attempt]);
 
   const title = useMemo(() => item?.titleBoutique || item?.titleRaw || 'Item', [item]);
-  const image = useMemo(() => item?.imageUrls?.[0], [item]);
+  const photos = useMemo(() => displayWatchPhotos(item?.imageUrls, item?.photoReview), [item]);
   const pricing = publicPrice(item);
 
   const addToBag = () => {
@@ -110,18 +112,13 @@ const PublicItem: React.FC = () => {
         <nav className="text-[10px] uppercase tracking-[0.25em] text-muted">
           <Link to="/" className="hover:text-black">Watches</Link>
           <span className="mx-2">/</span>
-          <span className="text-black">{item.category}</span>
+          <span className="text-black">Watch details</span>
         </nav>
 
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-12">
           {/* Gallery */}
-          <div className="lg:col-span-7">
-            <div className="border border-line bg-gray-50 aspect-square flex items-center justify-center overflow-hidden">
-              <img src={image} alt={title} className="w-full h-full object-cover" />
-            </div>
-            <p className="mt-4 text-xs text-muted">
-              Images supplied by the source seller.
-            </p>
+          <div key={item.id} className="lg:col-span-7">
+            <WatchGallery photos={photos} title={title} />
           </div>
 
           {/* Details */}
@@ -188,3 +185,29 @@ const Spec: React.FC<{ label: string; value: string }> = ({ label, value }) => (
 );
 
 export default PublicItem;
+
+function WatchGallery({ photos, title }: { photos: ReturnType<typeof displayWatchPhotos>; title: string }) {
+  const [index, setIndex] = useState(0);
+  const [original, setOriginal] = useState(false);
+  const activeIndex = Math.min(index, Math.max(0, photos.length - 1));
+  const selected = photos[activeIndex];
+  return <>
+    <WatchPhoto photo={selected && original ? { ...selected, tone: 'original' } : selected}
+      alt={photos.length > 1 ? `${title} · photo ${activeIndex + 1}` : title} eager />
+    {photos.length > 1 && <div className="mt-3 flex flex-wrap gap-2" aria-label="Watch photos">
+      {photos.map((photo, i) => <button key={photo.url} type="button" onClick={() => setIndex(i)}
+        aria-label={`Show photo ${i + 1}`} aria-pressed={i === activeIndex}
+        className={`w-16 shrink-0 border ${i === activeIndex ? 'border-black' : 'border-transparent'}`}>
+        <WatchPhoto photo={photo} alt="" />
+      </button>)}
+    </div>}
+    <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
+      <p>Photos supplied by the source seller.</p>
+      {selected?.tone && selected.tone !== 'original' &&
+        <button type="button" onClick={() => setOriginal(value => !value)} className="underline">
+          {original ? 'Show studio lighting' : 'Show original lighting'}
+        </button>}
+      {selected && <a href={selected.url} target="_blank" rel="noopener noreferrer" className="underline">Open original photo</a>}
+    </div>
+  </>;
+}

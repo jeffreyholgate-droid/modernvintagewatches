@@ -5,6 +5,9 @@ import { PublishState } from '../types';
 import { runCurate, patchItem } from '../lib/api';
 import { formatPence, publicPrice } from '../lib/cart-pricing';
 import type { PricingQuote } from '../api/_lib/pricing';
+import { displayWatchPhotos, type WatchPhoto } from '../lib/watch-photos';
+import { PhotoReview } from './PhotoReview';
+import { WatchPhoto as PhotoTile } from './WatchPhoto';
 
 const AdminInventory: React.FC = () => {
   const [items, setItems] = useState<AppStateItem[]>([]);
@@ -12,6 +15,11 @@ const AdminInventory: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [review, setReview] = useState<{ item: AppStateItem; title: string; description: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [photoApproval, setPhotoApproval] = useState<WatchPhoto[] | null>(null);
+  const [view, setView] = useState<'candidates' | 'published' | 'all'>('candidates');
+  const visible = items.filter(item => view === 'all' || (view === 'published'
+    ? item.publishStatus === PublishState.PUBLISHED
+    : item.status === 'ACTIVE' && item.publishStatus !== PublishState.PUBLISHED));
   useEffect(() => {
     const init = async () => {
       try { await globalStore.refresh({ admin: true }); }
@@ -44,20 +52,30 @@ const AdminInventory: React.FC = () => {
       .catch(() => setError('The listing could not be withdrawn. Please try again.'));
   };
 
+  function openReview(item: AppStateItem) {
+    setError(null);
+    setPhotoApproval(null);
+    setReview({ item, title: item.titleBoutique || item.titleRaw, description: item.description || '' });
+  }
+
   const saveReview = async (publish: boolean) => {
     if (!review || !review.title.trim() || !review.description.trim()) return;
-    if (publish && review.item.status !== 'ACTIVE') return;
+    if (publish && (review.item.status !== 'ACTIVE' || !photoApproval)) return;
     setSaving(true);
     setError(null);
     try {
       await patchItem(review.item.id, {
         titleBoutique: review.title.trim(), description: review.description.trim(),
         publishStatus: publish ? PublishState.PUBLISHED : PublishState.DRAFT,
+        ...(publish && photoApproval ? { photoReview: photoApproval } : {}),
       });
       await globalStore.refresh({ admin: true });
       setReview(null);
-    } catch {
-      setError('Your changes could not be saved. The review is still open.');
+    } catch (caught) {
+      const code = caught instanceof Error ? caught.message : '';
+      setError(['PHOTO_REVIEW_REQUIRED', 'LISTING_CHANGED'].includes(code)
+        ? 'The source photos or availability changed. Refresh the inventory and review the current listing.'
+        : 'Your changes could not be saved. The review is still open.');
     } finally { setSaving(false); }
   };
 
@@ -66,13 +84,21 @@ const AdminInventory: React.FC = () => {
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-stone-900 uppercase tracking-tight">Curation Queue</h1>
-          <p className="text-stone-500 text-sm">Reviewing {items.length} Discoveries</p>
+          <p className="text-stone-500 text-sm">Compare source photos and costs to find watches worth presenting better.</p>
         </div>
+        <label className="text-sm text-stone-700">Show
+          <select value={view} onChange={event => setView(event.target.value as typeof view)}
+            className="ml-2 border border-stone-300 bg-white p-2">
+            <option value="candidates">Active candidates</option>
+            <option value="published">Published watches</option>
+            <option value="all">All watches</option>
+          </select>
+        </label>
       </div>
 
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
 
-      <div className="bg-white border border-stone-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-stone-200 rounded-xl overflow-x-auto shadow-sm">
         <table className="min-w-full divide-y divide-stone-200">
           <thead className="bg-stone-50">
             <tr>
@@ -84,9 +110,13 @@ const AdminInventory: React.FC = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-200 text-sm bg-white">
-            {items.map((item) => (
+            {!visible.length && <tr><td colSpan={5} className="px-6 py-8 text-stone-500">No watches in this view.</td></tr>}
+            {visible.map((item) => (
               <tr key={item.id} className="hover:bg-stone-50 transition">
                 <td className="px-6 py-4 max-w-xs">
+                  <div className="mb-2 w-16">
+                    <PhotoTile photo={displayWatchPhotos(item.imageUrls, item.photoReview)[0]} alt="" />
+                  </div>
                   <div className="text-[11px] font-medium text-stone-400 italic line-clamp-1">"{item.titleRaw}"</div>
                   <div className="text-[9px] text-amber-600 font-bold uppercase tracking-widest mt-1">{item.sellerName}</div>
                   <div className="text-[10px] text-stone-500 mt-1">Source status: {item.status}</div>
@@ -113,7 +143,7 @@ const AdminInventory: React.FC = () => {
                   {item.publishStatus !== PublishState.PUBLISHED ? (
                     <div className="flex flex-col items-end gap-2">
                       <button
-                        onClick={() => { setError(null); setReview({ item, title: item.titleBoutique || item.titleRaw, description: item.description || '' }); }}
+                        onClick={() => openReview(item)}
                         disabled={!!processingState[item.id]}
                         className="border border-stone-900 px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest disabled:opacity-50"
                       >{item.status !== 'ACTIVE' ? 'Review listing' : item.titleBoutique && item.description ? 'Review & publish' : 'Write & review listing'}</button>
@@ -126,12 +156,18 @@ const AdminInventory: React.FC = () => {
                     </button>
                     </div>
                   ) : (
+                    <div className="flex flex-col items-end gap-2">
+                    <button type="button" onClick={() => openReview(item)}
+                      className="border border-stone-900 px-4 py-2 rounded text-[10px] font-bold uppercase tracking-widest">
+                      Review photos
+                    </button>
                     <button 
                       onClick={() => handleWithdraw(item.id)}
                       className="text-stone-300 hover:text-red-600 text-[10px] font-bold uppercase tracking-widest transition"
                     >
                       Withdraw
                     </button>
+                    </div>
                   )}
                 </td>
               </tr>
@@ -144,10 +180,12 @@ const AdminInventory: React.FC = () => {
         <div role="dialog" aria-modal="true" aria-labelledby="review-title" className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white p-6 rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto space-y-4">
             <h2 id="review-title" className="text-xl font-semibold">Review listing</h2>
-            <p className="text-sm text-stone-600">Check the title, condition, reference and any authenticity claims against the source, including any generated text. Source availability does not verify condition or authenticity.</p>
+            <p className="text-sm text-stone-600">Bring the watch’s overlooked features forward using verified details. Check the title, condition, reference and any claims against the seller’s listing.</p>
             {review.item.status !== 'ACTIVE' && <p className="text-sm text-amber-800">This source listing is not active. You can save a draft, but it cannot be published.</p>}
             <a href={review.item.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">Open source listing</a>
             <div className="border border-stone-200 p-4"><InventoryPricing item={review.item} /></div>
+            <PhotoReview photos={displayWatchPhotos(review.item.imageUrls, review.item.photoReview)}
+              onApproval={setPhotoApproval} disabled={saving} />
             <label className="block text-sm">Title
               <input value={review.title} onChange={e => setReview({ ...review, title: e.target.value })} className="block w-full border border-stone-300 p-2 mt-1" />
             </label>
@@ -156,8 +194,10 @@ const AdminInventory: React.FC = () => {
             </label>
             {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
             <div className="flex flex-wrap gap-3">
-              {review.item.status === 'ACTIVE' && <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(true)} className="bg-stone-900 text-white px-4 py-2 rounded disabled:opacity-50">Publish reviewed listing</button>}
-              <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(false)} className="border border-stone-300 px-4 py-2 rounded disabled:opacity-50">Save draft</button>
+              {review.item.status === 'ACTIVE' && <button disabled={saving || !photoApproval || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(true)} className="bg-stone-900 text-white px-4 py-2 rounded disabled:opacity-50">
+                {review.item.publishStatus === PublishState.PUBLISHED ? 'Save reviewed listing' : 'Publish reviewed listing'}
+              </button>}
+              {review.item.publishStatus !== PublishState.PUBLISHED && <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(false)} className="border border-stone-300 px-4 py-2 rounded disabled:opacity-50">Save draft</button>}
               <button disabled={saving} onClick={() => setReview(null)} className="px-4 py-2">Cancel</button>
             </div>
           </div>

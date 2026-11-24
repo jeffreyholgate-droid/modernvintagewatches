@@ -71,7 +71,7 @@ export async function authoritativeLines(lines: CheckoutLine[], deps: CheckoutDe
   const settings = await deps.getSettings();
   return Promise.all(lines.map(async ({ id, expectedAmountPence }) => {
     const item = await deps.getItem(id);
-    if (!item || item.publishStatus !== 'PUBLISHED' || item.status !== 'ACTIVE') {
+    if (!item || item.category !== 'WATCH' || item.publishStatus !== 'PUBLISHED' || item.status !== 'ACTIVE') {
       throw new CheckoutError('ITEM_UNAVAILABLE', 409);
     }
     const sourceAmount = Math.round(item.priceGbp * 100);

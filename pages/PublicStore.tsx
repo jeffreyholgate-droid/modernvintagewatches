@@ -4,11 +4,12 @@ import type { AppStateItem } from '../lib/store';
 import { fetchPublicItems } from '../lib/api';
 import { Category, PublishState } from '../types';
 import { formatPence, publicPrice } from '../lib/cart-pricing';
+import { displayWatchPhotos } from '../lib/watch-photos';
+import { WatchPhoto } from './WatchPhoto';
 
 type SortMode = 'NEWEST' | 'PRICE_ASC' | 'PRICE_DESC';
 
 const PublicStore: React.FC = () => {
-  const [activeCategory, setActiveCategory] = useState<string>('ALL');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortMode>('NEWEST');
   const [items, setItems] = useState<AppStateItem[]>([]);
@@ -21,7 +22,7 @@ const PublicStore: React.FC = () => {
     setLoading(true);
     setLoadError(false);
     fetchPublicItems()
-      .then(value => { if (alive) setItems(value.filter(item => item.publishStatus === PublishState.PUBLISHED)); })
+      .then(value => { if (alive) setItems(value.filter(item => item.category === Category.WATCH && item.publishStatus === PublishState.PUBLISHED)); })
       .catch(() => { if (alive) setLoadError(true); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -30,7 +31,6 @@ const PublicStore: React.FC = () => {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const base = items.filter((item) => {
-      if (activeCategory !== 'ALL' && item.category !== activeCategory) return false;
       if (!q) return true;
       const hay = `${item.titleBoutique || ''} ${item.titleRaw || ''} ${item.sellerName || ''}`.toLowerCase();
       return hay.includes(q);
@@ -46,7 +46,7 @@ const PublicStore: React.FC = () => {
       return String(b.lastSeenAt || '').localeCompare(String(a.lastSeenAt || ''));
     });
     return sorted;
-  }, [items, activeCategory, query, sort]);
+  }, [items, query, sort]);
 
   return (
     <div className="bg-page min-h-screen pt-24">
@@ -77,28 +77,8 @@ const PublicStore: React.FC = () => {
         </div>
       </section>
 
-      {/* Filter row */}
       <section className="max-w-7xl mx-auto px-6 py-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-3">
-            {['ALL', ...Object.values(Category)].map((cat) => {
-              const active = activeCategory === cat;
-              return (
-                <button
-                  key={cat}
-                  aria-pressed={active}
-                  onClick={() => setActiveCategory(cat)}
-                  className={
-                    `text-xs uppercase tracking-[0.25em] px-3 py-2 border ` +
-                    (active ? 'border-black bg-black text-white' : 'border-line text-muted hover:text-black')
-                  }
-                >
-                  {cat === 'ALL' ? 'All' : cat}
-                </button>
-              );
-            })}
-          </div>
-
+        <div className="flex justify-end">
           <div className="flex items-center gap-3">
             <label htmlFor="watch-sort" className="text-[10px] uppercase tracking-widest text-muted">Sort</label>
             <select
@@ -132,14 +112,7 @@ const PublicStore: React.FC = () => {
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-12">
             {filtered.map((item) => (
               <Link key={item.id} to={`/item/${item.id}`} className="group">
-                <div className="aspect-square bg-gray-50 border border-line overflow-hidden flex items-center justify-center">
-                  <img
-                    src={item.imageUrls?.[0]}
-                    alt={item.titleBoutique || item.titleRaw}
-                    className="w-full h-full object-cover group-hover:opacity-95 transition"
-                    loading="lazy"
-                  />
-                </div>
+                <WatchPhoto photo={displayWatchPhotos(item.imageUrls, item.photoReview)[0]} alt={item.titleBoutique || item.titleRaw} />
                 <div className="mt-4">
                   <p className="text-[10px] uppercase tracking-[0.25em] text-muted">
                     {(item.titleBoutique || item.titleRaw || '').split(' ')[0] || 'Watch'}

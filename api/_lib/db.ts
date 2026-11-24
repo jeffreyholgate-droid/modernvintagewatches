@@ -2,12 +2,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { Category, PublishState, EbayItem } from '../../types.js';
 import type { InventoryRefreshPlan } from '../../server/inventory-refresh.js';
 import { DEFAULT_PRICING_POLICY, normalizePricingPolicy, marginBasisPoints, type PricingPolicy } from './pricing.js';
+import { parsePhotoReview, watchPhotoUrls, type WatchPhoto } from '../../lib/watch-photos.js';
 
 export interface AppStateItem extends EbayItem {
   titleBoutique?: string;
   description?: string;
   publishStatus: PublishState;
   score: number;
+  photoReview?: WatchPhoto[] | null;
 }
 
 export interface Settings {
@@ -67,7 +69,7 @@ export async function checkDatabase(): Promise<'connected' | 'memory'> {
   // credentials are present. Empty tables are healthy; inaccessible/missing
   // tables or an incompatible schema are not.
   const results = await Promise.all([
-    supabase.from('items').select('id,ebay_item_id,url,title_raw,title_boutique,description,price_gbp,shipping_gbp,seller_name,seller_feedback_percent,seller_feedback_score,category,location_country,image_urls,status,last_seen_at,first_seen_at,publish_state,score,updated_at').limit(1),
+    supabase.from('items').select('id,ebay_item_id,url,title_raw,title_boutique,description,price_gbp,shipping_gbp,seller_name,seller_feedback_percent,seller_feedback_score,category,location_country,image_urls,photo_review,status,last_seen_at,first_seen_at,publish_state,score,updated_at').limit(1),
     supabase.from('settings').select('id,data,updated_at').limit(1),
     supabase.from('logs').select('id,ts,level,message').limit(1),
   ]);
@@ -152,9 +154,10 @@ export async function saveSettings(next: Settings): Promise<void> {
 export async function listItems(opts: { publishedOnly: boolean }): Promise<AppStateItem[]> {
   const supabase = getSupabase();
   if (!supabase) {
-    return (opts.publishedOnly ? mem.items.filter(i => i.publishStatus === PublishState.PUBLISHED && i.status === 'ACTIVE') : mem.items);
+    return mem.items.filter(i => i.category === Category.WATCH &&
+      (!opts.publishedOnly || (i.publishStatus === PublishState.PUBLISHED && i.status === 'ACTIVE')));
   }
-  let q = supabase.from('items').select('*').order('last_seen_at', { ascending: false });
+  let q = supabase.from('items').select('*').eq('category', Category.WATCH).order('last_seen_at', { ascending: false });
   if (opts.publishedOnly) q = q.eq('publish_state', PublishState.PUBLISHED).eq('status', 'ACTIVE');
   const { data, error } = await q;
   if (error) throw error;
@@ -187,7 +190,12 @@ export async function upsertItems(newItems: AppStateItem[]): Promise<number> {
       } else {
         const existing = mem.items[index];
         if (existing.status === 'ACTIVE' && Date.parse(existing.lastSeenAt) <= Date.parse(item.lastSeenAt)) {
-          mem.items[index] = { ...existing, ...sourceItemPatch(item) };
+          const updated = { ...existing, ...sourceItemPatch(item) };
+          if (JSON.stringify(existing.imageUrls) !== JSON.stringify(updated.imageUrls)) {
+            updated.photoReview = null;
+            if (updated.publishStatus === PublishState.PUBLISHED) updated.publishStatus = PublishState.DRAFT;
+          }
+          mem.items[index] = updated;
         }
       }
     }
@@ -295,6 +303,25 @@ export async function updateItem(id: string, patch: Partial<AppStateItem>): Prom
   if (error) throw error;
 }
 
+export async function publishReviewedWatch(
+  item: AppStateItem, patch: Partial<AppStateItem>, photos: WatchPhoto[],
+): Promise<boolean> {
+  const supabase = getSupabase();
+  const changes = { ...patch, photoReview: photos, publishStatus: PublishState.PUBLISHED };
+  if (!supabase) {
+    const latest = mem.items.find(candidate => candidate.id === item.id);
+    if (!latest || latest.status !== 'ACTIVE' || latest.category !== Category.WATCH ||
+        JSON.stringify(latest.imageUrls) !== JSON.stringify(item.imageUrls)) return false;
+    await updateItem(item.id, changes);
+    return true;
+  }
+  const { data, error } = await supabase.from('items').update(itemToRowPatch(changes))
+    .eq('id', item.id).eq('category', Category.WATCH).eq('status', 'ACTIVE')
+    .eq('image_urls', JSON.stringify(item.imageUrls)).select('id');
+  if (error) throw error;
+  return data?.length === 1;
+}
+
 export async function getItemById(id: string): Promise<AppStateItem | null> {
   const supabase = getSupabase();
   if (!supabase) return mem.items.find(i => i.id === id) ?? null;
@@ -338,6 +365,7 @@ function itemToRowPatch(p: Partial<AppStateItem>) {
   if (p.titleRaw !== undefined) out.title_raw = p.titleRaw;
   if (p.priceGbp !== undefined) out.price_gbp = p.priceGbp;
   if (p.imageUrls !== undefined) out.image_urls = p.imageUrls;
+  if (p.photoReview !== undefined) out.photo_review = p.photoReview;
   return out;
 }
 
@@ -357,6 +385,7 @@ function rowToItem(r: any): AppStateItem {
     category: r.category,
     locationCountry: r.location_country,
     imageUrls: Array.isArray(r.image_urls) ? r.image_urls : (r.image_urls || []),
+    photoReview: parsePhotoReview(r.photo_review, watchPhotoUrls(r.image_urls)),
     status: r.status,
     lastSeenAt: typeof r.last_seen_at === 'string' ? r.last_seen_at : new Date(r.last_seen_at).toISOString(),
     firstSeenAt: typeof r.first_seen_at === 'string' ? r.first_seen_at : new Date(r.first_seen_at).toISOString(),

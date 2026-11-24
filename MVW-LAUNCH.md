@@ -23,3 +23,11 @@ The deployed release passed 125 automated tests, TypeScript checking, the Vercel
 ## Database and rollback
 
 The additive order-operations migration is `db/migrations/20261124_order_operations.sql`, after orders and retail pricing. It adds an append-only order history and service-only RPCs. The preview migration was applied after a Windows DPAPI-encrypted backup and a read-back verified existing rows across the six core tables were identical. For alias rollback, the previous ready deployment is `modernvintagewatches-ge9e4mvo0-jeffrey-holgates-projects.vercel.app` (`2937781`). Older preview code can run with the additive tables present. Keep recorded operations for review if reverting application code.
+
+## Watch catalogue and photo review
+
+Use **Inventory → Active candidates** to compare the seller's lead photo, source cost and MVW retail. Look for a demonstrably weak listing, such as a poor lead photo or a vague title. Confirm the exact reference, condition and included accessories. Compare like-for-like completed sales and allow for seller risk, both delivery legs, fees and returns before calling a watch undervalued. The queue does not estimate market value automatically.
+
+In the listing review, compare every source angle with its studio preview. Choose the cover that makes the watch easiest to understand and set a lighting treatment per photo. The neutral frame fits the whole image. Treatments change the tone of the whole photo only. They leave the original file, framing, marks and visible details available; the product gallery links to each full-size original. If wear is less clear after a treatment, use original lighting. The server requires the complete current gallery and retains every angle. A source URL set change sends the item back to draft.
+
+The migration `db/migrations/20261124_watch_photos.sql` adds a gallery review field and a publication guard. Existing published watches keep their original lighting inside the new frame until reviewed. The source image is still hosted by its provider, so a file replacement at the same URL cannot be detected by the URL comparison. Confirm display rights before commercial launch.

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useCart } from '../lib/cart';
 import { checkoutErrorMessage, checkoutNeedsPriceRefresh, hasCheckoutAttempt, requestCheckout, resumeExistingCheckout } from '../lib/checkout';
 import { formatPence } from '../lib/cart-pricing';
+import { WatchPhoto } from './WatchPhoto';
 
 const Bag: React.FC = () => {
   const cart = useCart();
@@ -88,10 +89,8 @@ const Bag: React.FC = () => {
             <div className="lg:col-span-8 space-y-6">
               {cart.state.lines.map((l) => (
                 <div key={l.id} className="flex gap-5 border-b border-line pb-6">
-                  <div className="w-28 h-28 bg-gray-50 border border-line flex items-center justify-center overflow-hidden">
-                    {l.imageUrl ? (
-                      <img src={l.imageUrl} alt={l.title} className="w-full h-full object-cover" />
-                    ) : null}
+                  <div className="w-20 sm:w-28 shrink-0">
+                    <WatchPhoto photo={l.imageUrl ? { url: l.imageUrl, tone: l.imageTone ?? 'original' } : undefined} alt={l.title} />
                   </div>
                   <div className="flex-1">
                     <div className="flex justify-between gap-6">

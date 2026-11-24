@@ -73,7 +73,7 @@ const SettingsPage: React.FC = () => {
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6">
           <h3 className="text-lg font-semibold border-b pb-4"><i className="fa-solid fa-filter mr-2"></i> Sourcing Limits</h3>
           
-          {Object.values(Category).map(cat => (
+          {[Category.WATCH].map(cat => (
             <div key={cat} className="space-y-3">
               <label className="text-sm font-bold text-slate-700">{cat} PRICE BAND (£)</label>
               <div className="flex space-x-4">
@@ -125,8 +125,8 @@ const SettingsPage: React.FC = () => {
           <div className="space-y-3">
             <label className="text-sm font-bold text-slate-700">TARGET GROSS MARGIN (%)</label>
             <p className="text-xs text-slate-500">Retail price = (source item + source postage + delivery allowance) ÷ (1 − target margin), rounded up. This is a margin on the retail price, not a markup on cost.</p>
-            <div className="grid grid-cols-3 gap-4">
-              {Object.values(Category).map(cat => (
+            <div>
+              {[Category.WATCH].map(cat => (
                 <div key={cat}>
                   <p className="text-[10px] text-slate-500 mb-1">{cat}</p>
                   <input 
