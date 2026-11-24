@@ -148,26 +148,16 @@ const PublicItem: React.FC = () => {
             {checkoutError ? <p role="alert" className="mt-4 text-sm text-red-700">{checkoutError}</p> : null}
 
             <div className="mt-8 border-t border-line pt-8">
-              <h2 className="text-xs uppercase tracking-[0.25em]">Details</h2>
-              <div className="mt-5 grid grid-cols-2 gap-y-5 text-sm">
-                <Spec label="Source location" value={item.locationCountry || 'Not provided'} />
-                <Spec label="Seller" value={item.sellerName || '—'} />
-                <Spec label="Seller feedback" value={`${item.sellerFeedbackPercent}%`} />
-                <Spec label="Review score" value={item.score > 0 ? `${item.score}/100` : 'Not scored'} />
-              </div>
-            </div>
-
-            <div className="mt-8 border-t border-line pt-8">
-              <h2 className="text-xs uppercase tracking-[0.25em]">Curator’s note</h2>
-              <p className="mt-4 text-sm text-muted leading-relaxed">
+              <h2 className="text-xs uppercase tracking-[0.25em]">Details and condition</h2>
+              <p className="mt-4 whitespace-pre-line text-sm text-muted leading-relaxed">
                 {item.description ||
-                  'This watch is listed by an external seller. Condition details are awaiting review, and availability must be confirmed before fulfillment.'}
+                  'Condition details are awaiting review.'}
               </p>
             </div>
 
             <div className="mt-8 border-t border-line pt-8 text-xs text-muted leading-relaxed">
               <p>
-                Each watch is sourced from an external seller. Availability must be confirmed before an order can be fulfilled.
+                Condition and accessories are based on the seller’s listing. MVW checks the watch in person before dispatch.
               </p>
             </div>
           </div>
@@ -176,13 +166,6 @@ const PublicItem: React.FC = () => {
     </div>
   );
 };
-
-const Spec: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div>
-    <p className="text-[10px] uppercase tracking-widest text-muted">{label}</p>
-    <p className="mt-1">{value}</p>
-  </div>
-);
 
 export default PublicItem;
 

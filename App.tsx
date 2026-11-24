@@ -11,6 +11,7 @@ import SyncStatus from './pages/SyncStatus';
 import AdminLogin from './pages/AdminLogin';
 import Bag from './pages/Bag';
 import Ordering from './pages/Ordering';
+import Reviews from './pages/Reviews';
 import CheckoutSuccess from './pages/CheckoutSuccess';
 import CheckoutCancel from './pages/CheckoutCancel';
 import { clearToken, hasToken, subscribeAdminAuth } from './lib/api';
@@ -75,6 +76,7 @@ const PublicNavigation: React.FC = () => {
           <div className="hidden md:flex items-center gap-6">
             <Link to="/" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">Watches</Link>
             <Link to="/ordering" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">How ordering works</Link>
+            <Link to="/reviews" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">Reviews</Link>
           </div>
         </div>
 
@@ -106,6 +108,7 @@ const App: React.FC = () => {
             <Route path="/" element={<PublicStore />} />
             <Route path="/item/:id" element={<PublicItem />} />
             <Route path="/ordering" element={<Ordering />} />
+            <Route path="/reviews" element={<Reviews />} />
             <Route path="/bag" element={<Bag />} />
             <Route path="/checkout/success" element={<CheckoutSuccess />} />
             <Route path="/checkout/cancel" element={<CheckoutCancel />} />
@@ -126,6 +129,7 @@ const App: React.FC = () => {
         <footer className="border-t border-line py-12 text-center">
           <div className="mb-5 flex justify-center gap-6 text-xs text-muted">
             <Link to="/ordering" className="underline">How ordering works</Link>
+            <Link to="/reviews" className="underline">Reviews</Link>
             <Link to="/admin" className="underline">Admin</Link>
           </div>
           <p className="text-[10px] uppercase tracking-[0.25em] text-muted">© {new Date().getFullYear()} Modern Vintage Watches</p>
