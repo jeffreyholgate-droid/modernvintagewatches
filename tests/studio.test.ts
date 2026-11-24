@@ -230,3 +230,18 @@ test("service API verifies review and source hash before processing", async () =
     else process.env.MVW_STUDIO_SERVICE_KEY = old;
   }
 });
+
+test("binary render delivers a lossless PNG and matching manifest", async () => {
+  const old = process.env.MVW_STUDIO_SERVICE_KEY;
+  process.env.MVW_STUDIO_SERVICE_KEY = "test-service-key-32-characters-minimum";
+  try {
+    const { source, png, mask } = await fixture();
+    const headers:Record<string,string>={};let result:Buffer=Buffer.alloc(0);
+    const res={statusCode:0,setHeader(k:string,v:string){headers[k]=v;},end(v:Buffer){result=v;}};
+    await handler({method:'POST',headers:{authorization:'Bearer '+process.env.MVW_STUDIO_SERVICE_KEY},body:{action:'render',source:{dataUrl:pngUrl(png)},sourceSha256:source.sha256,maskDataUrl:pngUrl(mask),recipe:{size:1200},responseFormat:'png',export:true,reviewed:true}},res);
+    assert.equal(res.statusCode,200);assert.equal(headers['Content-Type'],'image/png');
+    const manifest=JSON.parse(decodeURIComponent(headers['X-Studio-Manifest']));
+    assert.equal(manifest.sourceSha256,source.sha256);assert.equal(manifest.width,1200);
+    assert.equal((await sharp(result).metadata()).format,'png');
+  } finally { if(old===undefined)delete process.env.MVW_STUDIO_SERVICE_KEY;else process.env.MVW_STUDIO_SERVICE_KEY=old; }
+});

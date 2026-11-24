@@ -545,3 +545,10 @@
     animation: none;
   }
 }
+.studio-downloads {
+  color: #c6a66f;
+  font-size: 12px;
+}
+.studio-downloads a {
+  text-decoration: underline;
+}

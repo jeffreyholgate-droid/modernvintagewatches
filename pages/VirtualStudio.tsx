@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { fetchAllItems, studioRequest } from "../lib/api";
+import { fetchAllItems, studioRequest, studioRender } from "../lib/api";
 import {
   defaultRecipe,
   parseRecipe,
@@ -73,7 +73,8 @@ export default function VirtualStudio() {
     [error, setError] = useState(""),
     [reviewed, setReviewed] = useState(false),
     [editing, setEditing] = useState(false),
-    [compare, setCompare] = useState(false);
+    [compare, setCompare] = useState(false),
+    [exportReady, setExportReady] = useState<Rendered | null>(null);
   const sourceUrl = source
       ? "url" in source
         ? source.url
@@ -93,6 +94,7 @@ export default function VirtualStudio() {
       );
   }, []);
   function choose(next: StudioSource, name: string) {
+    setExportReady(null);
     setSource(next);
     setSourceName(name);
     setPrepared(null);
@@ -102,6 +104,7 @@ export default function VirtualStudio() {
     setRecipe({ ...defaultRecipe });
   }
   function change(key: keyof StudioRecipe, value: any) {
+    setExportReady(null);
     setRecipe((r) => ({ ...r, [key]: value }));
     setReviewed(false);
   }
@@ -121,6 +124,7 @@ export default function VirtualStudio() {
   }
   async function prepare(maskDataUrl?: string) {
     if (!source) return;
+    setExportReady(null);
     setEditing(false);
     setReviewed(false);
     const p = await run<StudioPrepared>("Preparing watch…", () =>
@@ -135,9 +139,10 @@ export default function VirtualStudio() {
   }
   async function render(p = prepared, r = recipe) {
     if (!source || !p) return;
+    setExportReady(null);
     setReviewed(false);
     const v = await run<Rendered>("Rendering studio…", () =>
-      studioRequest("POST", {
+      studioRender({
         action: "render",
         source,
         sourceSha256: p.analysis.sourceSha256,
@@ -153,7 +158,7 @@ export default function VirtualStudio() {
   async function exportImage() {
     if (!current || !reviewed || !prepared || !source) return;
     const v = await run<Rendered>("Preparing export…", () =>
-      studioRequest("POST", {
+      studioRender({
         action: "render",
         source,
         sourceSha256: prepared.analysis.sourceSha256,
@@ -164,16 +169,15 @@ export default function VirtualStudio() {
       }),
     );
     if (v) {
-      download(v.imageDataUrl, "MVW-" + recipe.preset + ".png");
-      jsonDownload(
-        {
+      setExportReady({
+        imageDataUrl: v.imageDataUrl,
+        manifest: {
           ...v.manifest,
           analysis: prepared.analysis,
           reviewedAt: new Date().toISOString(),
           maskDataUrl: prepared.maskDataUrl,
         },
-        "MVW-" + recipe.preset + "-recipe.json",
-      );
+      });
     }
   }
   function range(
@@ -468,6 +472,29 @@ export default function VirtualStudio() {
               >
                 Export PNG + recipe
               </button>
+              {exportReady && current && reviewed && (
+                <span className="studio-downloads" role="status">
+                  Export ready:{" "}
+                  <a
+                    href={exportReady.imageDataUrl}
+                    download={"MVW-" + recipe.preset + ".png"}
+                  >
+                    Download PNG
+                  </a>{" "}
+                  ·{" "}
+                  <a
+                    href={
+                      "data:application/json;charset=utf-8," +
+                      encodeURIComponent(
+                        JSON.stringify(exportReady.manifest, null, 2),
+                      )
+                    }
+                    download={"MVW-" + recipe.preset + "-recipe.json"}
+                  >
+                    Download recipe
+                  </a>
+                </span>
+              )}
               <button
                 disabled={!prepared || !!busy}
                 onClick={() =>

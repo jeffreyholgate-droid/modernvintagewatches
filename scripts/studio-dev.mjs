@@ -33,7 +33,9 @@ const server = createHTTPServer(async (req, res) => {
   } else vite.middlewares(req, res);
 });
 server.listen(4175, "127.0.0.1", () =>
-  console.log("Studio development server: http://127.0.0.1:4175/admin/studio"),
+  console.log(
+    "Studio development server: http://127.0.0.1:4175/#/admin/studio",
+  ),
 );
 async function stop() {
   server.close();

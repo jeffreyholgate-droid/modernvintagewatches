@@ -138,6 +138,16 @@ export default async function handler(req: any, res: any) {
     const result = await compositeWatch(source, mask, recipe);
     if (input.export === true && input.reviewed !== true)
       throw new Error("REVIEW_REQUIRED");
+    if (input.responseFormat === "png" && action === "render") {
+      if (result.png.length > 4_300_000) throw new Error("EXPORT_TOO_LARGE");
+      res.setHeader("Content-Type", "image/png");
+      res.setHeader(
+        "X-Studio-Manifest",
+        encodeURIComponent(JSON.stringify(result.manifest)),
+      );
+      res.statusCode = 200;
+      return res.end(result.png);
+    }
     if (result.png.length > 2_950_000) throw new Error("EXPORT_TOO_LARGE");
     const payload = {
       imageDataUrl: pngUrl(result.png),

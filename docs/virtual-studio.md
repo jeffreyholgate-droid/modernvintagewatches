@@ -45,6 +45,8 @@ const { imageDataUrl, manifest, analysis, maskDataUrl } = await response.json();
 
 `prepare` returns `analysis`, `maskDataUrl`, `cutoutDataUrl` and `recipe`. `render` accepts the same source, its `sourceSha256`, mask and recipe and returns `imageDataUrl` plus `manifest`. `compose` prepares and renders in one request. Use serial calls for multiple source angles; each source needs its own mask. A recipe cannot synthesize a new watch angle.
 
+For larger lossless outputs, call `render` with `responseFormat: "png"`. The response is raw `image/png`; `X-Studio-Manifest` contains URI-encoded JSON metadata. This is the browser's default render/export path. PNG responses are limited to 4.3 MB. JSON adds base64 overhead, so choose 960 px for one-call JSON composition or use prepare then binary render. Oversized outputs fail explicitly instead of silently compressing watch detail.
+
 `source` is exactly one of `{url}` or `{dataUrl}`. URLs are HTTPS on `i.ebayimg.com`, the configured Supabase host, or explicit `STUDIO_IMAGE_HOSTS` entries. Redirects are rejected. Download bytes, decoded pixels and JSON body/response sizes are bounded. Uploads are not persisted. Exports require `export: true, reviewed: true`; this is an acknowledgement from the authenticated caller, not an approval signature or separate publishing authority.
 
 Safe error codes include `UNAUTHORIZED`, `AI_CREDITS_DEPLETED`, `AI_NOT_CONFIGURED`, `SEGMENTATION_NOT_CONFIGURED`, `AI_MASK_NEEDS_REVIEW`, `SOURCE_CHANGED`, `MASK_NEEDS_REVIEW`, `WATCH_OUTSIDE_FRAME` and `EXPORT_TOO_LARGE`. Retry a smaller size for large outputs; do not automatically retry paid AI calls indefinitely.
