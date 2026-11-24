@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { cartTotalPence, publicPrice, quotedCartLine, reconcileCart, restoreCart } from '../lib/cart-pricing.js';
+import { cartTotalPence, publicPrice, quotedCartLine, reconcileCart, removeVerifiedPaidItems, restoreCart } from '../lib/cart-pricing.js';
 import { checkoutAttemptKey, checkoutNeedsPriceRefresh, hasCheckoutAttempt, requestCheckout, resumeExistingCheckout, type CheckoutAttemptStorage } from '../lib/checkout.js';
 
 function item(id='watch-a',amount=125500) {
@@ -89,4 +89,26 @@ test('resuming reserved inventory requires an existing retry key and never submi
   assert.equal(hasCheckoutAttempt(lines,attempts),false);
   await assert.rejects(resumeExistingCheckout(lines,async()=>{calls++;return Response.json({});},attempts));
   assert.equal(calls,0);
+});
+
+test('verified paid confirmation removes only its order items, preserving unrelated or later additions',()=>{
+  const lines=[quotedCartLine(item('paid-a'))!,quotedCartLine(item('unrelated'))!,quotedCartLine(item('paid-b'))!,quotedCartLine(item('added-after-checkout'))!];
+  const confirmed={paid:true,status:'complete',orderStatus:'paid_awaiting_source',itemIds:['paid-a','paid-b','not-in-this-bag']};
+  const remaining=removeVerifiedPaidItems(lines,confirmed);
+  assert.deepEqual(remaining.map(line=>line.id),['unrelated','added-after-checkout']);
+  assert.equal(remaining[0],lines[1]);
+  assert.equal(remaining[1],lines[3]);
+  assert.deepEqual(removeVerifiedPaidItems(remaining,confirmed),remaining,'revisiting a verified return is harmless');
+  assert.equal(lines.length,4,'the previous basket is not mutated');
+});
+
+test('unpaid, pending, inconsistent or malformed confirmations preserve the whole bag',()=>{
+  const lines=[quotedCartLine(item('watch-a'))!];
+  const confirmed={paid:true,status:'complete',orderStatus:'paid_awaiting_source',itemIds:['watch-a']};
+  for(const response of [
+    null,{}, {...confirmed,paid:false},{...confirmed,paid:'true'},
+    ...['open','expired',undefined].map(status=>({...confirmed,status})),
+    ...['pending_payment','payment_review','expired',undefined].map(orderStatus=>({...confirmed,orderStatus})),
+    ...[undefined,[],['watch-a','watch-a'],[' watch-a'],[null],['watch-a\n'],Array(21).fill('watch-a')].map(itemIds=>({...confirmed,itemIds})),
+  ])assert.equal(removeVerifiedPaidItems(lines,response),lines);
 });

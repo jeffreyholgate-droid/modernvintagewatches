@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useCart } from '../lib/cart';
 
 type Confirmation = 'checking' | 'paid' | 'pending' | 'unconfirmed';
 type OrderStatus = 'pending_payment' | 'paid_awaiting_source' | 'expired' | 'payment_review';
@@ -11,6 +12,9 @@ const orderLabels: Record<OrderStatus, string> = {
 };
 
 const CheckoutSuccess: React.FC = () => {
+  const cart = useCart();
+  const cartRef = useRef(cart);
+  cartRef.current = cart;
   const [params] = useSearchParams();
   const sessionId = params.get('session_id');
   const [confirmation, setConfirmation] = useState<Confirmation>('checking');
@@ -38,6 +42,10 @@ const CheckoutSuccess: React.FC = () => {
           throw new Error('UNCONFIRMED');
         }
         if (!controller.signal.aborted) {
+          // The URL alone never clears a bag. This response was checked by the
+          // server against Stripe and its order; the helper also requires the
+          // durable paid order state and removes only its exact product IDs.
+          cartRef.current.removePaidItems(data);
           setTestMode(data.testMode);
           setOrderStatus(data.orderStatus);
           setConfirmation(data.paid === true ? 'paid' : data.status === 'expired' ? 'unconfirmed' : 'pending');

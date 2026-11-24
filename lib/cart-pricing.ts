@@ -69,3 +69,14 @@ export function reconcileCart(lines: CartLine[], observations: Map<string, any |
   });
   return { lines: next, changed, ready: next.length > 0 && cartTotalPence(next) !== null };
 }
+
+/** Remove only stored order IDs after both payment and durable order confirmation. */
+export function removeVerifiedPaidItems(lines: CartLine[], confirmation: unknown): CartLine[] {
+  const data = confirmation as { paid?: unknown; status?: unknown; orderStatus?: unknown; itemIds?: unknown } | null;
+  if (data?.paid !== true || data.status !== 'complete' || data.orderStatus !== 'paid_awaiting_source' ||
+      !Array.isArray(data.itemIds) || data.itemIds.length < 1 || data.itemIds.length > 20 ||
+      data.itemIds.some(id => typeof id !== 'string' || !id.trim() || id !== id.trim() || id.length > 200 || /[\x00-\x1f\x7f]/.test(id)) ||
+      new Set(data.itemIds).size !== data.itemIds.length) return lines;
+  const paid = new Set(data.itemIds);
+  return lines.filter(line => !paid.has(line.id));
+}

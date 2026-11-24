@@ -144,9 +144,24 @@ test('completed sessions return verification destination, never another payment 
 test('public payment status requires database linkage, marker, test mode, amount and currency agreement', () => {
   const order = { ...orderFixture(), stripeSessionId: 'cs_test_fixture' };
   const paid = { ...sessionFixture(), status: 'complete' as const, payment_status: 'paid' as const };
-  assert.deepEqual(linkedPaymentStatus(paid, order), { paid: true, status: 'complete', orderStatus: 'pending_payment', testMode: true });
+  assert.deepEqual(linkedPaymentStatus(paid, order), { paid: true, status: 'complete', orderStatus: 'pending_payment', testMode: true, itemIds: ['watch-1'] });
   for (const change of [{ id: 'cs_test_wrong' }, { amount_total: 1 }, { currency: 'usd' }, { livemode: true },
     { metadata: { checkout_origin: CHECKOUT_MARKER, order_id: 'wrong' } }]) {
     assert.throws(() => linkedPaymentStatus({ ...paid, ...change }, order), CheckoutError);
   }
+});
+
+test('only a verified paid session exposes purchased item IDs for selective basket removal', () => {
+  const order = { ...orderFixture(), status: 'paid_awaiting_source' as const, stripeSessionId: 'cs_test_fixture' };
+  const paid = { ...sessionFixture(), status: 'complete' as const, payment_status: 'paid' as const };
+  const result = linkedPaymentStatus(paid, order);
+  assert.deepEqual(result.itemIds, ['watch-1']);
+  assert.deepEqual(Object.keys(result).sort(), ['itemIds', 'orderStatus', 'paid', 'status', 'testMode']);
+  for (const session of [sessionFixture(), { ...paid, payment_status: 'unpaid' as const },
+    { ...sessionFixture(), status: 'expired' as const }]) {
+    const unpaid = linkedPaymentStatus(session, { ...order, status: 'pending_payment' });
+    assert.equal(unpaid.paid, false);
+    assert.equal(Object.hasOwn(unpaid, 'itemIds'), false);
+  }
+  assert.throws(() => linkedPaymentStatus({ ...paid, id: 'cs_test_other' }, order), CheckoutError);
 });

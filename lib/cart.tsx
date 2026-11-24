@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchItem } from './api';
-import { cartTotalPence, reconcileCart, restoreCart, type CartLine } from './cart-pricing';
+import { cartTotalPence, reconcileCart, removeVerifiedPaidItems, restoreCart, type CartLine } from './cart-pricing';
 export type { CartLine } from './cart-pricing';
 
 type CartState = { lines: CartLine[] };
@@ -10,6 +10,7 @@ type CartApi = {
   totalPence: number | null;
   add: (line: CartLine) => void;
   remove: (id: string) => void;
+  removePaidItems: (confirmation: unknown) => void;
   setQty: (id: string, qty: number) => void;
   refreshPrices: () => Promise<{ lines: CartLine[]; changed: boolean; ready: boolean }>;
   clear: () => void;
@@ -65,6 +66,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ? previous.lines.map(value => value.id === line.id ? { ...line, qty: 1 } : value)
       : [...previous.lines, { ...line, qty: 1 }] })),
     remove: id => updateState(previous => ({ lines: previous.lines.filter(line => line.id !== id) })),
+    removePaidItems: confirmation => updateState(previous => ({ lines: removeVerifiedPaidItems(previous.lines, confirmation) })),
     setQty: id => updateState(previous => ({ lines: previous.lines.map(line => line.id === id ? { ...line, qty: 1 } : line) })),
     refreshPrices,
     clear: () => updateState(() => ({ lines: [] })),

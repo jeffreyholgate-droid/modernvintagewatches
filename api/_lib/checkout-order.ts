@@ -34,7 +34,11 @@ function validateSession(session: StripeSession, order: Order, requireLink: bool
 
 export function linkedPaymentStatus(session: StripeSession, order: Order) {
   validateSession(session, order, true);
-  return { ...paymentStatus(session), orderStatus: order.status, testMode: session.livemode === false };
+  const status = paymentStatus(session);
+  return {
+    ...status, orderStatus: order.status, testMode: session.livemode === false,
+    ...(status.paid ? { itemIds: order.lines.map(line => line.itemId) } : {}),
+  };
 }
 
 export function stripeOrderParameters(order: Order): Stripe.Checkout.SessionCreateParams {
