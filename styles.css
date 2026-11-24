@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 .watch-photo-frame {
-  background: #eeeae2;
+  background: linear-gradient(to bottom right, var(--mvw-studio-light), var(--mvw-studio-shade));
   border: 1px solid var(--mvw-line);
   aspect-ratio: 1;
   padding: 7%;
@@ -11,6 +11,9 @@
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
 }
+
+.watch-photo-studio { padding: 0; }
+.watch-photo-original { background: #f2f1ee; }
 
 .watch-photo-frame > img {
   width: 100%;
@@ -44,6 +47,9 @@ svg:focus-visible .backdrop-keyboard-marker { opacity: 1; }
   --mvw-muted: #6b7280;
   --mvw-line: #e5e7eb;
   --mvw-accent: #111111;
+  --mvw-studio-light: #f9f6ef;
+  --mvw-studio-shade: #e9e1d4;
+  --mvw-studio-shadow: #4c3d32;
 }
 
 body {

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { displayWatchPhotos, maskPath, maskViewBox, parsePhotoMask, parsePhotoReview } from '../lib/watch-photos.js';
+import { displayWatchPhotos, maskPath, studioPlacement, parsePhotoMask, parsePhotoReview } from '../lib/watch-photos.js';
 
 const a = 'https://example.com/front.jpg';
 const b = 'https://example.com/detail.jpg';
@@ -26,7 +26,13 @@ test('normalised cutouts preserve source coordinates and support openings withou
   const parsed = parsePhotoMask(mask)!;
   assert.deepEqual(parsed, mask);
   assert.equal(maskPath(parsed), 'M200 160 L800 160 L800 640 L200 640 Z M400 320 L600 320 L500 480 Z');
-  assert.equal(maskViewBox(parsed), '164 124 672 552');
+  const { viewBox, shadow } = studioPlacement(parsed);
+  const [left, top, width, height] = viewBox.split(' ').map(Number);
+  assert.equal(width, height);
+  assert.ok(Math.abs(600 / width - 0.83) < 0.000001);
+  assert.ok(Math.abs(left + width / 2 - 500) < 0.000001);
+  assert.ok(Math.abs(top + height / 2 - 400) < 0.000001);
+  assert.ok(shadow.cy + shadow.ry < top + height);
   assert.equal(parsePhotoMask({ ...mask, outlines: [[[1, 1], [2, 2], [3, 3]]] }), null);
   assert.equal(parsePhotoMask({ ...mask, outlines: [[[1, 1], [1001, 2], [300, 300]]] }), null);
   assert.equal(parsePhotoReview([studio[0], photos[1]], [a, b], true), null);

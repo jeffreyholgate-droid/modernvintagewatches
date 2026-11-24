@@ -6,6 +6,7 @@ export type WatchPhoto = { url: string; tone: PhotoTone; mask?: PhotoMask };
 
 export const MAX_OUTLINES = 8;
 export const MAX_MASK_POINTS = 160;
+export const STUDIO_SUBJECT_SCALE = 0.83;
 
 export function validOutline(points: unknown): points is MaskPoint[] {
   if (!Array.isArray(points) || points.length < 3 || points.length > MAX_MASK_POINTS ||
@@ -34,8 +35,8 @@ export function maskPath(mask: PhotoMask) {
   ).join(' ');
 }
 
-/** Centre and scale all retained shapes together without clipping their edges. */
-export function maskViewBox(mask: PhotoMask): string {
+/** Centre all retained shapes on a square canvas with the approved subject scale. */
+export function studioPlacement(mask: PhotoMask) {
   const points = mask.outlines.flat();
   const xs = points.map(([x]) => x * mask.width / 1000);
   const ys = points.map(([, y]) => y * mask.height / 1000);
@@ -43,8 +44,13 @@ export function maskViewBox(mask: PhotoMask): string {
   const top = Math.min(...ys);
   const width = Math.max(...xs) - left;
   const height = Math.max(...ys) - top;
-  const padding = Math.max(width, height) * 0.06;
-  return [left - padding, top - padding, width + 2 * padding, height + 2 * padding].join(' ');
+  const side = Math.max(width, height) / STUDIO_SUBJECT_SCALE;
+  const midX = left + width / 2;
+  const midY = top + height / 2;
+  return {
+    viewBox: [midX - side / 2, midY - side / 2, side, side].join(' '),
+    shadow: { cx: midX + side * 0.025, cy: top + height - side * 0.042, rx: side * 0.31, ry: side * 0.058 },
+  };
 }
 
 export const photoToneLabels: Record<PhotoTone, string> = {

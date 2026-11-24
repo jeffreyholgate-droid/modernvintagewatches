@@ -1,22 +1,31 @@
 import React, { useId, useState } from 'react';
-import { maskPath, maskViewBox, type WatchPhoto as Photo } from '../lib/watch-photos';
+import { maskPath, studioPlacement, type WatchPhoto as Photo } from '../lib/watch-photos';
 
-export function WatchPhoto({ photo, alt, eager = false, onReady }: {
+export function WatchPhoto({ photo, alt, eager = false, originalView = false, onReady }: {
   photo?: Photo;
   alt: string;
   eager?: boolean;
+  originalView?: boolean;
   onReady?: (ready: boolean) => void;
 }) {
   const [failedUrl, setFailedUrl] = useState<string>();
   const clipId = useId().replace(/[^a-zA-Z0-9_-]/g, '');
-  const mask = photo?.mask;
-  return <div className="watch-photo-frame">
+  const mask = originalView ? undefined : photo?.mask;
+  const studio = mask && studioPlacement(mask);
+  const shadowId = `${clipId}-shadow`;
+  return <div className={`watch-photo-frame${studio ? ' watch-photo-studio' : ''}${originalView ? ' watch-photo-original' : ''}`}>
     {photo && failedUrl !== photo.url ?
-      mask ? <svg className="watch-photo-cutout" viewBox={maskViewBox(mask)}
+      mask && studio ? <svg className="watch-photo-cutout" viewBox={studio.viewBox}
         role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={!alt}>
         <defs>
           <clipPath id={clipId}><path d={maskPath(mask)} clipRule="evenodd" /></clipPath>
+          <radialGradient id={shadowId}>
+            <stop offset="0" stopColor="var(--mvw-studio-shadow)" stopOpacity=".12" />
+            <stop offset=".48" stopColor="var(--mvw-studio-shadow)" stopOpacity=".075" />
+            <stop offset="1" stopColor="var(--mvw-studio-shadow)" stopOpacity="0" />
+          </radialGradient>
         </defs>
+        <ellipse {...studio.shadow} fill={`url(#${shadowId})`} />
         <image href={photo.url} width={mask.width} height={mask.height} data-tone={photo.tone}
           clipPath={`url(#${clipId})`} onLoad={() => onReady?.(true)}
           onError={() => { setFailedUrl(photo.url); onReady?.(false); }} />

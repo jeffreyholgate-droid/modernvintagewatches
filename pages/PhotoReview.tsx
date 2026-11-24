@@ -36,7 +36,7 @@ export function PhotoReview({ photos, onApproval, disabled }: {
 
   return <fieldset disabled={disabled} className="space-y-3 border border-stone-200 p-4">
     <legend className="px-1 font-medium">Photo review</legend>
-    <p className="text-sm text-stone-600">Give every photo the same MVW backdrop. Compare each cutout with the original before approving it. Keep every edge, mark and relevant accessory visible.</p>
+    <p className="text-sm text-stone-600">Use Porcelain Studio throughout the gallery. Compare each cutout with the original before approving it. Keep every edge, mark and relevant accessory visible.</p>
     {!photo ? <p className="text-sm text-amber-800">No source photos are available. The listing cannot be published.</p> : <>
       <div className="flex flex-wrap gap-2" aria-label="Select a photo to review">
         {gallery.map((entry, i) => <button type="button" key={entry.url} aria-pressed={index === i}
@@ -54,14 +54,14 @@ export function PhotoReview({ photos, onApproval, disabled }: {
       </div> : <div className="grid grid-cols-2 gap-3">
         <figure>
           <figcaption className="mb-1 text-xs text-muted">Original</figcaption>
-          <WatchPhoto photo={{ url: photo.url, tone: 'original' }} alt={`Original photo ${index + 1}`} eager
+          <WatchPhoto photo={{ url: photo.url, tone: 'original' }} alt={`Original photo ${index + 1}`} eager originalView
             onReady={ready => {
               setLoaded(previous => ({ ...previous, [photo.url]: ready }));
               if (!ready && approved.has(index)) updatePhoto({});
             }} />
         </figure>
         <figure>
-          <figcaption className="mb-1 text-xs text-muted">MVW backdrop</figcaption>
+          <figcaption className="mb-1 text-xs text-muted">Porcelain Studio</figcaption>
           {photo.mask ? <WatchPhoto photo={photo} alt={`Studio view of photo ${index + 1}`} eager /> :
             <div className="watch-photo-frame"><p className="text-center text-sm text-muted">Outline the watch to preview its new backdrop.</p></div>}
         </figure>

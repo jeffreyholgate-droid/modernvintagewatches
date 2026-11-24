@@ -176,7 +176,7 @@ function WatchGallery({ photos, title }: { photos: ReturnType<typeof displayWatc
   const selected = photos[activeIndex];
   return <>
     <WatchPhoto photo={selected && original ? { url: selected.url, tone: 'original' } : selected}
-      alt={photos.length > 1 ? `${title} · photo ${activeIndex + 1}` : title} eager />
+      alt={photos.length > 1 ? `${title} · photo ${activeIndex + 1}` : title} eager originalView={original} />
     {photos.length > 1 && <div className="mt-3 flex flex-wrap gap-2" aria-label="Watch photos">
       {photos.map((photo, i) => <button key={photo.url} type="button" onClick={() => setIndex(i)}
         aria-label={`Show photo ${i + 1}`} aria-pressed={i === activeIndex}

@@ -28,7 +28,7 @@ export function BackdropEditor({ url, mask, onChange, onEdit }: {
   }
 
   return <div className="space-y-2">
-    <p className="text-sm text-stone-700">Tap around the outside of the watch and close the outline. Add separate outlines for accessories, or trace an opening inside the outline to show the backdrop through it.</p>
+    <p className="text-sm text-stone-700">Tap around the outside of the watch and close the outline. Trace separate accessories or openings as needed. If a hand or stand hides part of the watch, use a clearer source photo.</p>
     <div className="relative mx-auto w-fit max-w-full">
       <img src={url} alt="Original watch photo to outline" className="block max-h-[65vh] max-w-full"
         onLoad={event => {

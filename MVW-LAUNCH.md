@@ -32,8 +32,8 @@ In the listing review, compare every source angle with its studio preview. Choos
 
 The migration `db/migrations/20261124_watch_photos.sql` adds a gallery review field and a publication guard. Existing published watches keep their original cover inside the new frame until reviewed. Additional source angles stay private until approved. Keep listings with sensitive details in review and obtain suitable source photos before publishing. The source image is still hosted by its provider, so a file replacement at the same URL cannot be detected by the URL comparison. Confirm display rights before commercial launch.
 
-### Standard backdrop
+### Porcelain Studio
 
-In **Photo review**, click **Outline subject** and trace around the watch and relevant accessories. Close the outline, trace any openings such as the inside of a bracelet, and select **Compare with original**. The studio view displays the source image through the outline on the same warm stone backdrop. The source file stays intact and remains available on the product page. Approve only when original edges and wear are visible and the photograph is suitable for display.
+The approved house treatment is [Porcelain Studio](MVW-PHOTOGRAPHY.md). In **Photo review**, click **Outline subject** and trace around the watch and relevant accessories. Close the outline, trace openings such as the inside of a bracelet, and select **Compare with original**. The studio view uses the house ivory backdrop and soft shadow. Approve only when original edges and wear are visible and the photograph is suitable for display.
 
 Apply `db/migrations/20261124_watch_backdrops.sql` after the watch photo migration. It requires a valid outline on every photo in a newly published gallery. Existing listings keep their current photos until they are individually reviewed. If the source angle cannot be separated confidently, obtain a better original before approving that photo.
