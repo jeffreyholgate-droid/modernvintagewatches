@@ -1,51 +1,59 @@
 
-import React from 'react';
-import { Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
+import React, { useSyncExternalStore } from 'react';
+import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminInventory from './pages/AdminInventory';
+import AdminOrders from './pages/AdminOrders';
 import PublicStore from './pages/PublicStore';
 import PublicItem from './pages/PublicItem';
 import SettingsPage from './pages/Settings';
 import SyncStatus from './pages/SyncStatus';
 import AdminLogin from './pages/AdminLogin';
 import Bag from './pages/Bag';
+import Ordering from './pages/Ordering';
+import Reviews from './pages/Reviews';
 import CheckoutSuccess from './pages/CheckoutSuccess';
 import CheckoutCancel from './pages/CheckoutCancel';
-import { hasToken } from './lib/api';
+import { clearToken, hasToken, subscribeAdminAuth } from './lib/api';
 import { CartProvider, useCart } from './lib/cart';
 
 const RequireAdmin: React.FC<{ children: React.ReactElement }> = ({ children }) => {
-  const navigate = useNavigate();
-  if (!hasToken()) {
-    return <AdminLogin onSuccess={() => navigate('/admin')} />;
+  const signedIn = useSyncExternalStore(subscribeAdminAuth, hasToken);
+  if (!signedIn) {
+    return <AdminLogin />;
   }
   return children;
 };
 
 const Navigation = () => {
   const location = useLocation();
+  const signedIn = useSyncExternalStore(subscribeAdminAuth, hasToken);
   const isAdmin = location.pathname.startsWith('/admin');
 
   if (isAdmin) {
     return (
       <nav className="bg-stone-950 text-white border-b border-stone-800 sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
+          <div className="flex min-h-16 flex-wrap items-center justify-between gap-x-4 gap-y-3 py-3">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
               <Link to="/admin" className="flex items-center space-x-2">
-                <span className="text-xl font-bold bg-amber-600 px-2 py-1 rounded tracking-tighter text-white">AGENT</span>
+                <span className="text-xl font-bold bg-amber-600 px-2 py-1 rounded tracking-tighter text-white">MVW</span>
                 <span className="font-semibold hidden sm:inline text-stone-300 uppercase text-[10px] tracking-widest ml-2">Control Panel</span>
               </Link>
-              <div className="ml-10 flex items-baseline space-x-8">
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-3">
                 <Link to="/admin" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin' ? 'text-amber-500' : 'text-stone-400'}`}>Dashboard</Link>
-                <Link to="/admin/inventory" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/inventory' ? 'text-amber-500' : 'text-stone-400'}`}>Curation Queue</Link>
+                <Link to="/admin/inventory" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/inventory' ? 'text-amber-500' : 'text-stone-400'}`}>Inventory</Link>
+                <Link to="/admin/orders" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/orders' ? 'text-amber-500' : 'text-stone-400'}`}>Orders</Link>
                 <Link to="/admin/sync" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/sync' ? 'text-amber-500' : 'text-stone-400'}`}>Audit Logs</Link>
                 <Link to="/admin/settings" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/settings' ? 'text-amber-500' : 'text-stone-400'}`}>Settings</Link>
               </div>
             </div>
-            <Link to="/" className="flex items-center text-[9px] text-stone-400 hover:text-white border border-stone-800 px-4 py-1 rounded-full uppercase tracking-widest transition-colors">
+            <div className="flex items-center gap-4">
+              {signedIn && <button type="button" onClick={clearToken} className="text-xs text-stone-400 hover:text-white">Sign out</button>}
+              <Link to="/" className="flex items-center text-[9px] text-stone-400 hover:text-white border border-stone-800 px-4 py-1 rounded-full uppercase tracking-widest transition-colors">
               <i className="fa-solid fa-eye mr-2"></i> View Boutique
-            </Link>
+              </Link>
+            </div>
           </div>
         </div>
       </nav>
@@ -67,16 +75,12 @@ const PublicNavigation: React.FC = () => {
           </Link>
           <div className="hidden md:flex items-center gap-6">
             <Link to="/" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">Watches</Link>
-            <Link to="/" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">New Arrivals</Link>
-            <Link to="/" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">Stories</Link>
-            <Link to="/" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">About</Link>
+            <Link to="/ordering" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">How ordering works</Link>
+            <Link to="/reviews" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">Reviews</Link>
           </div>
         </div>
 
         <div className="flex items-center gap-5">
-          <Link to="/admin" className="text-xs uppercase tracking-[0.25em] text-muted hover:text-black">
-            Admin
-          </Link>
           <Link to="/bag" className="relative text-xs uppercase tracking-[0.25em] hover:text-black">
             Bag
             <span className="ml-2 inline-flex items-center justify-center text-[10px] border border-line px-2 py-0.5 rounded-full text-muted">
@@ -89,6 +93,11 @@ const PublicNavigation: React.FC = () => {
   );
 };
 
+function AdminLoginRoute() {
+  const signedIn = useSyncExternalStore(subscribeAdminAuth, hasToken);
+  return signedIn ? <Navigate to="/admin" replace /> : <AdminLogin />;
+}
+
 const App: React.FC = () => {
   return (
     <CartProvider>
@@ -98,17 +107,31 @@ const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<PublicStore />} />
             <Route path="/item/:id" element={<PublicItem />} />
+            <Route path="/ordering" element={<Ordering />} />
+            <Route path="/reviews" element={<Reviews />} />
             <Route path="/bag" element={<Bag />} />
             <Route path="/checkout/success" element={<CheckoutSuccess />} />
             <Route path="/checkout/cancel" element={<CheckoutCancel />} />
-            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route path="/admin/login" element={<AdminLoginRoute />} />
             <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
             <Route path="/admin/inventory" element={<RequireAdmin><AdminInventory /></RequireAdmin>} />
+            <Route path="/admin/orders" element={<RequireAdmin><AdminOrders /></RequireAdmin>} />
             <Route path="/admin/sync" element={<RequireAdmin><SyncStatus /></RequireAdmin>} />
             <Route path="/admin/settings" element={<RequireAdmin><SettingsPage /></RequireAdmin>} />
+            <Route path="*" element={
+              <section className="mx-auto max-w-3xl px-6 pb-24 pt-32">
+                <h1 className="text-2xl">Page unavailable</h1>
+                <Link to="/" className="mt-5 inline-block text-sm underline">Return to watches</Link>
+              </section>
+            } />
           </Routes>
         </main>
         <footer className="border-t border-line py-12 text-center">
+          <div className="mb-5 flex justify-center gap-6 text-xs text-muted">
+            <Link to="/ordering" className="underline">How ordering works</Link>
+            <Link to="/reviews" className="underline">Reviews</Link>
+            <Link to="/admin" className="underline">Admin</Link>
+          </div>
           <p className="text-[10px] uppercase tracking-[0.25em] text-muted">© {new Date().getFullYear()} Modern Vintage Watches</p>
         </footer>
       </div>

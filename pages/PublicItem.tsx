@@ -2,23 +2,41 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { fetchItem } from '../lib/api';
 import { useCart } from '../lib/cart';
+import { checkoutErrorMessage, checkoutNeedsPriceRefresh, requestCheckout } from '../lib/checkout';
+import { formatPence, publicPrice, quotedCartLine } from '../lib/cart-pricing';
+import { displayWatchPhotos } from '../lib/watch-photos';
+import { WatchPhoto } from './WatchPhoto';
 
 const PublicItem: React.FC = () => {
   const { id } = useParams();
   const cart = useCart();
   const [item, setItem] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadedId, setLoadedId] = useState<string | undefined>(undefined);
+  const [loadError, setLoadError] = useState('');
+  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [checkoutError, setCheckoutError] = useState('');
 
   useEffect(() => {
     let alive = true;
+    setLoadedId(id);
+    setLoading(true);
+    setItem(null);
+    setLoadError('');
+    setCheckoutError('');
     (async () => {
       try {
         if (!id) return;
         const it = await fetchItem(id, false);
         if (alive) setItem(it);
-      } catch {
-        if (alive) setItem(null);
+      } catch (error: any) {
+        if (alive) {
+          setItem(null);
+          if (error?.status !== 404) {
+            setLoadError('We couldn’t load this watch right now. Please try again.');
+          }
+        }
       } finally {
         if (alive) setLoading(false);
       }
@@ -26,42 +44,53 @@ const PublicItem: React.FC = () => {
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, attempt]);
 
   const title = useMemo(() => item?.titleBoutique || item?.titleRaw || 'Item', [item]);
-  const image = useMemo(() => item?.imageUrls?.[0], [item]);
+  const photos = useMemo(() => displayWatchPhotos(item?.imageUrls, item?.photoReview), [item]);
+  const pricing = publicPrice(item);
 
   const addToBag = () => {
-    if (!item) return;
-    cart.add({ id: item.id, title, priceGbp: item.priceGbp, imageUrl: image }, 1);
+    const line = quotedCartLine(item);
+    if (line) cart.add(line);
   };
 
   const buyNow = async () => {
-    if (!item) return;
+    if (!item || !pricing || busy) return;
     setBusy(true);
+    setCheckoutError('');
     try {
-      const res = await fetch('/api/checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lines: [{ id: item.id, title, priceGbp: item.priceGbp, imageUrl: image, qty: 1 }] }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data?.url) {
-        window.location.href = data.url;
-        return;
+      window.location.href = await requestCheckout([{ id: item.id, qty: 1, expectedAmountPence: pricing.retailPricePence }]);
+    } catch (error) {
+      if (checkoutNeedsPriceRefresh(error)) {
+        try { setItem(await fetchItem(item.id)); }
+        catch { setLoadError('We couldn’t confirm the current price. Please try again.'); }
       }
-      // Dev fallback: treat as success.
-      cart.clear();
-      window.location.href = '/#/checkout/success';
+      setCheckoutError(checkoutErrorMessage(error));
     } finally {
       setBusy(false);
     }
   };
 
-  if (loading) {
+  // Hide a previous product immediately on navigation, before the effect runs.
+  if (loading || loadedId !== id) {
     return (
       <div className="bg-page min-h-screen pt-28 flex items-center justify-center">
         <p className="text-xs uppercase tracking-widest text-muted">Loading…</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="bg-page min-h-screen pt-28 flex items-center justify-center">
+        <div className="px-6 text-center">
+          <p role="alert" className="text-muted">{loadError}</p>
+          <button type="button" onClick={() => setAttempt(value => value + 1)} className="mt-6 text-sm underline">
+            Try again
+          </button>
+          <Link to="/" className="block mt-6 text-sm underline">Return to watches</Link>
+        </div>
       </div>
     );
   }
@@ -83,63 +112,52 @@ const PublicItem: React.FC = () => {
         <nav className="text-[10px] uppercase tracking-[0.25em] text-muted">
           <Link to="/" className="hover:text-black">Watches</Link>
           <span className="mx-2">/</span>
-          <span className="text-black">{item.category}</span>
+          <span className="text-black">Watch details</span>
         </nav>
 
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-12 gap-12">
           {/* Gallery */}
-          <div className="lg:col-span-7">
-            <div className="border border-line bg-gray-50 aspect-square flex items-center justify-center overflow-hidden">
-              <img src={image} alt={title} className="w-full h-full object-cover" />
-            </div>
-            <p className="mt-4 text-xs text-muted">
-              Images are curated for consistency. Ask for additional photos if you want a full condition set.
-            </p>
+          <div key={item.id} className="lg:col-span-7">
+            <WatchGallery photos={photos} title={title} />
           </div>
 
           {/* Details */}
           <div className="lg:col-span-5">
             <h1 className="text-3xl md:text-4xl tracking-tight">{title}</h1>
-            <p className="mt-3 text-xl">£{Number(item.priceGbp).toLocaleString()}</p>
+            <p className="mt-3 text-xl">{pricing ? formatPence(pricing.retailPricePence) : 'Price unavailable'}</p>
+            {pricing ? <p className="mt-2 text-sm text-muted">UK delivery included</p>
+              : <p className="mt-2 text-sm text-muted">We’re confirming the current price. Please try again shortly.</p>}
 
             <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
               <button
                 onClick={addToBag}
-                className="w-full border border-black py-3 text-sm uppercase tracking-widest hover:bg-black hover:text-white transition"
+                disabled={!pricing || busy}
+                className="w-full border border-black py-3 text-sm uppercase tracking-widest hover:bg-black hover:text-white transition disabled:opacity-50"
               >
                 Add to bag
               </button>
               <button
                 onClick={buyNow}
-                disabled={busy}
+                disabled={busy || !pricing}
                 className="w-full bg-black text-white py-3 text-sm uppercase tracking-widest hover:opacity-90 disabled:opacity-50"
               >
                 {busy ? 'Starting checkout…' : 'Buy now'}
               </button>
             </div>
 
-            <div className="mt-8 border-t border-line pt-8">
-              <h2 className="text-xs uppercase tracking-[0.25em]">Details</h2>
-              <div className="mt-5 grid grid-cols-2 gap-y-5 text-sm">
-                <Spec label="Provenance" value={item.locationCountry || 'UK'} />
-                <Spec label="Seller" value={item.sellerName || '—'} />
-                <Spec label="Seller feedback" value={`${item.sellerFeedbackPercent}%`} />
-                <Spec label="Agent score" value={`${item.score}/100`} />
-              </div>
-            </div>
+            {checkoutError ? <p role="alert" className="mt-4 text-sm text-red-700">{checkoutError}</p> : null}
 
             <div className="mt-8 border-t border-line pt-8">
-              <h2 className="text-xs uppercase tracking-[0.25em]">Curator’s note</h2>
-              <p className="mt-4 text-sm text-muted leading-relaxed">
+              <h2 className="text-xs uppercase tracking-[0.25em]">Details and condition</h2>
+              <p className="mt-4 whitespace-pre-line text-sm text-muted leading-relaxed">
                 {item.description ||
-                  'A clean, well-presented listing. If you’d like a tighter condition assessment, we can request additional photos and serial/reference confirmation before dispatch.'}
+                  'Condition details are awaiting review.'}
               </p>
             </div>
 
             <div className="mt-8 border-t border-line pt-8 text-xs text-muted leading-relaxed">
               <p>
-                * Buy‑now purchases are processed through secure checkout. Inventory is limited — if a source item becomes unavailable,
-                we’ll refund immediately.
+                Condition and accessories are based on the seller’s listing. MVW checks the watch in person before dispatch.
               </p>
             </div>
           </div>
@@ -149,11 +167,30 @@ const PublicItem: React.FC = () => {
   );
 };
 
-const Spec: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-  <div>
-    <p className="text-[10px] uppercase tracking-widest text-muted">{label}</p>
-    <p className="mt-1">{value}</p>
-  </div>
-);
-
 export default PublicItem;
+
+function WatchGallery({ photos, title }: { photos: ReturnType<typeof displayWatchPhotos>; title: string }) {
+  const [index, setIndex] = useState(0);
+  const [original, setOriginal] = useState(false);
+  const activeIndex = Math.min(index, Math.max(0, photos.length - 1));
+  const selected = photos[activeIndex];
+  return <>
+    <WatchPhoto photo={selected && original ? { url: selected.url, tone: 'original' } : selected}
+      alt={photos.length > 1 ? `${title} · photo ${activeIndex + 1}` : title} eager originalView={original} />
+    {photos.length > 1 && <div className="mt-3 flex flex-wrap gap-2" aria-label="Watch photos">
+      {photos.map((photo, i) => <button key={photo.url} type="button" onClick={() => setIndex(i)}
+        aria-label={`Show photo ${i + 1}`} aria-pressed={i === activeIndex}
+        className={`w-16 shrink-0 border ${i === activeIndex ? 'border-black' : 'border-transparent'}`}>
+        <WatchPhoto photo={photo} alt="" />
+      </button>)}
+    </div>}
+    <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
+      <p>Photos supplied by the source seller.</p>
+      {selected && (selected.mask || selected.tone !== 'original') &&
+        <button type="button" onClick={() => setOriginal(value => !value)} className="underline">
+          {original ? 'Show studio version' : 'Show original photo'}
+        </button>}
+      {selected && <a href={selected.url} target="_blank" rel="noopener noreferrer" className="underline">Open original photo</a>}
+    </div>
+  </>;
+}

@@ -1,21 +1,42 @@
 import { PublishState } from '../types';
+import type { PricingQuote } from '../api/_lib/pricing';
+import type { Operation, OperationState, RefundReason, SourceCheck } from '../api/_lib/order-operations';
+import type { WatchPhoto } from './watch-photos';
+
+const TOKEN_KEY = 'chronos_admin_token';
+const AUTH_CHANGE = 'mvw-admin-auth-change';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || '';
 
 function getToken(): string {
-  return localStorage.getItem('chronos_admin_token') || '';
+  try { return localStorage.getItem(TOKEN_KEY) || ''; }
+  catch { return ''; }
 }
 
 export function setToken(token: string) {
-  localStorage.setItem('chronos_admin_token', token);
+  localStorage.setItem(TOKEN_KEY, token);
+  window.dispatchEvent(new Event(AUTH_CHANGE));
 }
 
 export function clearToken() {
-  localStorage.removeItem('chronos_admin_token');
+  localStorage.removeItem(TOKEN_KEY);
+  window.dispatchEvent(new Event(AUTH_CHANGE));
 }
 
 export function hasToken(): boolean {
   return !!getToken();
+}
+
+export function subscribeAdminAuth(onChange: () => void): () => void {
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === TOKEN_KEY || event.key === null) onChange();
+  };
+  window.addEventListener(AUTH_CHANGE, onChange);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(AUTH_CHANGE, onChange);
+    window.removeEventListener('storage', onStorage);
+  };
 }
 
 async function request<T>(path: string, opts: RequestInit = {}, auth = false): Promise<T> {
@@ -27,9 +48,9 @@ async function request<T>(path: string, opts: RequestInit = {}, auth = false): P
     headers['Content-Type'] = 'application/json';
   }
 
-  if (auth) {
-    const token = getToken();
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+  const token = auth ? getToken() : '';
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API_BASE}${path}`, { ...opts, headers });
@@ -37,6 +58,7 @@ async function request<T>(path: string, opts: RequestInit = {}, auth = false): P
   let data: any = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
   if (!res.ok) {
+    if (res.status === 401 && token && token === getToken()) clearToken();
     const err: any = new Error(data?.error || 'REQUEST_FAILED');
     err.status = res.status;
     err.data = data;
@@ -68,7 +90,9 @@ export async function fetchItem(id: string, admin = false) {
   return item;
 }
 
-export async function patchItem(id: string, patch: Partial<{ publishStatus: PublishState; titleBoutique: string; description: string; score: number }>) {
+export async function patchItem(id: string, patch: Partial<{
+  publishStatus: PublishState; titleBoutique: string; description: string; score: number; photoReview: WatchPhoto[];
+}>) {
   const { item } = await request<{ item: any }>(`/api/item/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(patch),
@@ -103,4 +127,32 @@ export async function saveSettings(settings: any) {
 export async function fetchLogs(limit = 50) {
   const { logs } = await request<{ logs: any[] }>(`/api/logs?limit=${limit}`, { method: 'GET' }, true);
   return logs;
+}
+
+export interface AdminOrderSummary {
+  id: string;
+  status: string;
+  totalPence: number;
+  currency: string;
+  createdAt: string;
+  stripeSessionId: string | null;
+  operation: Operation | null;
+  lines: Array<{ itemId: string; title: string; amountPence: number; sourceUrl: string; ebayItemId: string; pricing?: PricingQuote | null }>;
+}
+
+export async function fetchOrders(): Promise<AdminOrderSummary[]> {
+  const { orders } = await request<{ orders: AdminOrderSummary[] }>('/api/orders', { method: 'GET' }, true);
+  return orders;
+}
+
+type OrderAction = { action: 'check_source'; itemId: string }
+  | { action: 'refund_requested'; revision: number; reason: RefundReason }
+  | { action: Exclude<OperationState, 'refunded' | 'refund_requested'> | 'check_refund'; revision: number };
+
+export async function manageOrder(orderId: string, action: OrderAction) {
+  return request<{
+    source?: SourceCheck;
+    operation?: Operation;
+    refund?: { succeededPence: number; pending: boolean; needsAttention: boolean; complete: boolean };
+  }>('/api/orders', { method: 'POST', body: JSON.stringify({ orderId, ...action }) }, true);
 }

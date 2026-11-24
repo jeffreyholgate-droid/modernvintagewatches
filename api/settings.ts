@@ -7,13 +7,25 @@ export default async function handler(req: any, res: any) {
   const ok = await requireAdmin(req, res);
   if (!ok) return;
 
+  res.setHeader('Cache-Control', 'no-store');
   if (req.method === 'GET') {
-    const settings = await getSettings();
-    return json(res, 200, { settings });
+    try {
+      const settings = await getSettings();
+      return json(res, 200, { settings });
+    } catch { return json(res, 503, { error: 'SETTINGS_UNAVAILABLE' }); }
   }
 
-  const body = await readJson(req);
-  await saveSettings(body.settings);
-  return json(res, 200, { ok: true });
+  let body: any;
+  try { body = await readJson(req); }
+  catch { return json(res, 400, { error: 'INVALID_JSON' }); }
+  try {
+    await saveSettings(body?.settings);
+    return json(res, 200, { ok: true });
+  } catch (error: any) {
+    if (['INVALID_SETTINGS', 'INVALID_PRICING_SETTINGS'].includes(error?.message)) {
+      return json(res, 400, { error: 'INVALID_SETTINGS' });
+    }
+    return json(res, 503, { error: 'SETTINGS_UNAVAILABLE' });
+  }
 }
 

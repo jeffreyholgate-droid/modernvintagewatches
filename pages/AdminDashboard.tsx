@@ -1,52 +1,58 @@
 
 import React, { useEffect, useState } from 'react';
-import { ResponsiveContainer, AreaChart, Area, CartesianGrid, XAxis, YAxis, Tooltip } from 'recharts';
+import { Link } from 'react-router-dom';
 import { globalStore } from '../lib/store';
-import { Category, PublishState } from '../types';
+import { PublishState } from '../types';
 import { runIngest as apiRunIngest } from '../lib/api';
 
 const AdminDashboard: React.FC = () => {
   const [isIngesting, setIsIngesting] = useState(false);
-  const [logs, setLogs] = useState<string[]>([]);
+  const [logs, setLogs] = useState<Array<{ message: string; time: string }>>([]);
+  const [inventoryState, setInventoryState] = useState<'loading' | 'ready' | 'error'>('loading');
 
-  const [counts, setCounts] = useState({ published: 0, discovery: 0 });
+  const [counts, setCounts] = useState({ published: 0, discovery: 0, drafts: 0, reserved: 0 });
 
   useEffect(() => {
+    let alive = true;
     const refresh = async () => {
       try {
         await globalStore.refresh({ admin: true });
+        if (alive) setInventoryState('ready');
       } catch {
-        // If not logged in yet, counts will remain 0.
+        if (alive) setInventoryState('error');
       }
     };
     refresh();
-    return globalStore.subscribe(() => {
+    const unsubscribe = globalStore.subscribe(() => {
+      if (!alive) return;
       const all = globalStore.getItems();
       setCounts({
         published: all.filter(i => i.publishStatus === PublishState.PUBLISHED).length,
         discovery: all.filter(i => i.publishStatus !== PublishState.PUBLISHED).length,
+        drafts: all.filter(i => i.publishStatus === PublishState.DRAFT).length,
+        reserved: all.filter(i => i.status === 'RESERVED').length,
       });
     });
+    return () => { alive = false; unsubscribe(); };
   }, []);
 
   const addLog = (msg: string) => {
-    setLogs(prev => [msg, ...prev].slice(0, 10));
+    setLogs(prev => [{ message: msg, time: new Date().toLocaleTimeString() }, ...prev].slice(0, 10));
   };
 
   const runIngest = async () => {
     setIsIngesting(true);
-    addLog("AGENT INITIATED: Scanning high-volatility luxury markets...");
-    await new Promise(r => setTimeout(r, 800));
-    
-    addLog("API HANDSHAKE: Triggering sourcing agent...");
+    addLog('Importing eBay listings…');
     try {
       const result = await apiRunIngest();
       await globalStore.refresh({ admin: true });
-      addLog(`INGEST COMPLETE: Found ${result.discovered} high-potential assets.`);
+      setInventoryState('ready');
+      addLog(`Import complete: ${result.discovered} candidates, ${result.upserted} new listings.`);
+      addLog('Next: generate drafts in the Curation Queue, then review and publish each listing.');
     } catch (e: any) {
-      addLog(`INGEST FAILED: ${e?.data?.error || e?.message || 'unknown error'}`);
+      setInventoryState('error');
+      addLog(`Import failed: ${e?.data?.error || 'check the connection and Audit Logs'}`);
     }
-    addLog(`NEXT STEP: Proceed to 'Inventory' to run AI Normalization.`);
     setIsIngesting(false);
   };
 
@@ -55,7 +61,7 @@ const AdminDashboard: React.FC = () => {
       <div className="flex justify-between items-center">
         <div className="space-y-1">
           <h1 className="text-3xl font-serif italic text-white tracking-tighter">Command Center</h1>
-          <p className="text-stone-500 text-[10px] font-bold uppercase tracking-[0.2em]">Operational Status: <span className="text-emerald-500">OPTIMIZED</span></p>
+          <p className="text-stone-500 text-[10px] font-bold uppercase tracking-[0.2em]">Inventory: <span className={inventoryState === 'error' ? 'text-amber-400' : 'text-stone-300'}>{inventoryState === 'loading' ? 'Loading' : inventoryState === 'error' ? 'Unavailable — check database connection' : 'Loaded'}</span></p>
         </div>
         <div className="flex space-x-4">
           <button 
@@ -77,52 +83,32 @@ const AdminDashboard: React.FC = () => {
         <div className="space-y-2">
           <h4 className="text-[11px] font-bold uppercase tracking-widest text-white">Getting Started</h4>
           <p className="text-xs text-stone-500 leading-relaxed max-w-2xl">
-            This dashboard manages your autonomous reseller. To populate your store: 
+            Prepare your collection for review:
             <span className="text-stone-300 font-bold ml-1">(1) Click 'Trigger Sourcing Agent'</span> to find raw listings. 
-            <span className="text-stone-300 font-bold ml-1">(2) Navigate to 'Inventory'</span> to use Gemini AI to normalize and curate the assets. 
-            <span className="text-stone-300 font-bold ml-1">(3) Refresh your homepage</span> to see the boutique live.
+            <span className="text-stone-300 font-bold ml-1">(2) Open the Curation Queue</span> to generate a description draft.
+            <span className="text-stone-300 font-bold ml-1">(3) Review and publish</span> each listing after checking the source and description.
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-        <StatCard label="Public Vault" value={counts.published} sub="Curated Assets" icon="fa-gem" color="text-gold" />
-        <StatCard label="Discovery Queue" value={counts.discovery} sub="Pending AI" icon="fa-bolt-lightning" color="text-stone-400" />
-        <StatCard label="AI Integrity" value="99.8%" sub="Normalization Score" icon="fa-brain" color="text-white" />
-        <StatCard label="Market Latency" value="42ms" sub="Node Response" icon="fa-tower-broadcast" color="text-stone-600" />
+        <StatCard label="Published" value={inventoryState === 'ready' ? counts.published : '—'} sub="Listings" icon="fa-gem" color="text-gold" />
+        <StatCard label="Unpublished" value={inventoryState === 'ready' ? counts.discovery : '—'} sub="Listings" icon="fa-bolt-lightning" color="text-stone-400" />
+        <StatCard label="Drafts" value={inventoryState === 'ready' ? counts.drafts : '—'} sub="Awaiting review" icon="fa-brain" color="text-white" />
+        <StatCard label="Reserved" value={inventoryState === 'ready' ? counts.reserved : '—'} sub="Awaiting payment outcome" icon="fa-lock" color="text-stone-400" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
         <div className="lg:col-span-7 bg-stone-900/30 p-8 rounded-2xl border border-stone-800/50">
-          <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-stone-500 mb-8">Acquisition Velocity</h3>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={[
-                { name: '00h', val: 10 }, { name: '04h', val: 15 }, { name: '08h', val: 42 },
-                { name: '12h', val: 38 }, { name: '16h', val: 55 }, { name: '20h', val: 48 }
-              ]}>
-                <CartesianGrid strokeDasharray="10 10" vertical={false} stroke="#1c1917" />
-                <XAxis dataKey="name" stroke="#444" fontSize={9} />
-                <YAxis stroke="#444" fontSize={9} />
-                <Tooltip 
-                  contentStyle={{backgroundColor: '#1c1917', border: '1px solid #292524', borderRadius: '8px', fontSize: '10px'}}
-                />
-                <Area type="monotone" dataKey="val" stroke="#d4af37" fill="url(#goldGradient)" strokeWidth={2} />
-                <defs>
-                  <linearGradient id="goldGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#d4af37" stopOpacity={0.2}/>
-                    <stop offset="95%" stopColor="#d4af37" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.3em] text-stone-500 mb-8">Order review</h3>
+          <p className="text-sm leading-relaxed">Checkout is restricted to test payments during recovery. Recorded payments wait for sourcing review; no eBay purchase or dispatch happens automatically.</p>
+          <Link to="/admin/orders" className="inline-block mt-6 text-sm underline">View recorded orders</Link>
         </div>
 
         <div className="lg:col-span-5 bg-black border border-stone-800 p-8 rounded-2xl shadow-2xl relative overflow-hidden group">
           <div className="absolute inset-0 bg-gold/5 opacity-0 group-hover:opacity-100 transition-opacity duration-1000"></div>
           <div className="flex justify-between items-center mb-8 border-b border-stone-900 pb-4">
-            <h3 className="text-[10px] font-bold uppercase tracking-[0.4em] text-gold">Live Telemetry</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.4em] text-gold">This session</h3>
             <div className="flex space-x-1">
               {[1, 2, 3].map(i => <div key={i} className="h-1 w-4 bg-stone-800 rounded-full overflow-hidden">
                 <div className="h-full bg-gold animate-progress" style={{animationDelay: `${i*200}ms`}}></div>
@@ -133,13 +119,13 @@ const AdminDashboard: React.FC = () => {
             {logs.length === 0 && (
               <div className="py-20 text-center space-y-4">
                 <i className="fa-solid fa-satellite-dish text-stone-800 text-3xl animate-pulse"></i>
-                <p className="text-stone-700 italic uppercase tracking-widest">Awaiting Uplink Initiation...</p>
+                <p className="text-stone-500">No import started in this session.</p>
               </div>
             )}
             {logs.map((log, i) => (
-              <div key={i} className={`flex space-x-3 p-2 rounded ${log.includes('Success') || log.includes('COMPLETE') ? 'bg-emerald-950/20 text-emerald-400 border border-emerald-900/30' : 'text-stone-500 border-l border-stone-800 pl-3'}`}>
-                <span className="opacity-40">[{new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}]</span>
-                <span className="tracking-tight">{log}</span>
+              <div key={i} className="flex space-x-3 p-2 rounded text-stone-400 border-l border-stone-800 pl-3">
+                <span className="opacity-40">[{log.time}]</span>
+                <span className="tracking-tight">{log.message}</span>
               </div>
             ))}
           </div>

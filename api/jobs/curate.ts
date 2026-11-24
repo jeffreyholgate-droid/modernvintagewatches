@@ -1,7 +1,7 @@
 import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
 import { requireAdmin } from '../_lib/auth.js';
 import { getItemById, updateItem, log } from '../_lib/db.js';
-import { PublishState } from '../../types.js';
+import { buildCurationDraft } from '../_lib/curation.js';
 import { GeminiService } from '../../server/gemini.js';
 
 export default async function handler(req: any, res: any) {
@@ -23,18 +23,15 @@ export default async function handler(req: any, res: any) {
     const normalized = await gemini.normalizeListing(item.category, item.titleRaw, 'N/A');
     const copy = await gemini.generateCopy(item.category, normalized);
 
-    await updateItem(id, {
-      titleBoutique: `${normalized.brand} ${normalized.model}`.trim(),
-      description: copy.long_description,
-      publishStatus: PublishState.PUBLISHED,
-    });
+    await updateItem(id, buildCurationDraft(normalized, copy));
 
-    await log('INFO', `CURATE: published id=${id}`);
+    await log('INFO', `CURATE: draft ready for review id=${id}`);
     const updated = await getItemById(id);
     return json(res, 200, { ok: true, item: updated });
-  } catch (e: any) {
-    await log('ERROR', `CURATE: failed id=${id} err=${e?.message ?? 'unknown'}`);
-    return json(res, 500, { error: 'CURATE_FAILED', detail: e?.message ?? 'unknown' });
+  } catch {
+    // Provider error messages may include request details; do not persist or return them.
+    await log('ERROR', `CURATE: failed id=${id}`);
+    return json(res, 500, { error: 'CURATE_FAILED' });
   }
 }
 
