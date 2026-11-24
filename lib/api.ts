@@ -8,6 +8,10 @@ const AUTH_CHANGE = 'mvw-admin-auth-change';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || '';
 
+export function studioRequest<T = any>(method: 'GET' | 'POST', body?: unknown): Promise<T> {
+  return request<T>('/api/studio', { method, ...(body ? { body: JSON.stringify(body) } : {}) }, true);
+}
+
 function getToken(): string {
   try { return localStorage.getItem(TOKEN_KEY) || ''; }
   catch { return ''; }

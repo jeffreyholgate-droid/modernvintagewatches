@@ -3,6 +3,7 @@ import React, { useSyncExternalStore } from 'react';
 import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminInventory from './pages/AdminInventory';
+import VirtualStudio from './pages/VirtualStudio';
 import AdminOrders from './pages/AdminOrders';
 import PublicStore from './pages/PublicStore';
 import PublicItem from './pages/PublicItem';
@@ -48,7 +49,7 @@ const Navigation = () => {
                 <Link to="/admin/settings" className={`text-[10px] font-bold uppercase tracking-widest hover:text-amber-400 ${location.pathname === '/admin/settings' ? 'text-amber-500' : 'text-stone-400'}`}>Settings</Link>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4"><Link to="/admin/studio" className="text-xs text-amber-400">Photo studio</Link>
               {signedIn && <button type="button" onClick={clearToken} className="text-xs text-stone-400 hover:text-white">Sign out</button>}
               <Link to="/" className="flex items-center text-[9px] text-stone-400 hover:text-white border border-stone-800 px-4 py-1 rounded-full uppercase tracking-widest transition-colors">
               <i className="fa-solid fa-eye mr-2"></i> View Boutique
@@ -116,6 +117,7 @@ const App: React.FC = () => {
             <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
             <Route path="/admin/inventory" element={<RequireAdmin><AdminInventory /></RequireAdmin>} />
             <Route path="/admin/orders" element={<RequireAdmin><AdminOrders /></RequireAdmin>} />
+            <Route path="/admin/studio" element={<RequireAdmin><VirtualStudio /></RequireAdmin>} />
             <Route path="/admin/sync" element={<RequireAdmin><SyncStatus /></RequireAdmin>} />
             <Route path="/admin/settings" element={<RequireAdmin><SettingsPage /></RequireAdmin>} />
             <Route path="*" element={

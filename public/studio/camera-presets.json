@@ -1,0 +1,138 @@
+{
+  "units": "metres",
+  "status": "Provisional. Match to each original product photograph.",
+  "presets": [
+    {
+      "name": "01_SIGNATURE",
+      "location_m": [
+        0.25,
+        -0.6599999666213989,
+        0.4660000205039978
+      ],
+      "rotation_euler_rad": [
+        0.9249356985092163,
+        2.419733569070104e-08,
+        0.6107260584831238
+      ],
+      "lens_mm": 85,
+      "sensor_width_mm": 36,
+      "f_stop": 8.0,
+      "focus_point_m": [
+        -0.10000000149011612,
+        -0.1599999964237213,
+        0.006000000052154064
+      ],
+      "purpose": "Primary diagonal view"
+    },
+    {
+      "name": "02_HIGH_THREE_QUARTER",
+      "location_m": [
+        0.12999999523162842,
+        -0.5399999618530273,
+        0.6559999585151672
+      ],
+      "rotation_euler_rad": [
+        0.5994712710380554,
+        -1.045002306909737e-09,
+        0.544280469417572
+      ],
+      "lens_mm": 85,
+      "sensor_width_mm": 36,
+      "f_stop": 8.0,
+      "focus_point_m": [
+        -0.10000000149011612,
+        -0.1599999964237213,
+        0.006000000052154064
+      ],
+      "purpose": "Higher view for open straps and readable dials"
+    },
+    {
+      "name": "03_OPPOSITE_DIAGONAL",
+      "location_m": [
+        -0.5199999809265137,
+        -0.6000000238418579,
+        0.3660000264644623
+      ],
+      "rotation_euler_rad": [
+        1.0364011526107788,
+        4.682510379439009e-08,
+        -0.762146532535553
+      ],
+      "lens_mm": 85,
+      "sensor_width_mm": 36,
+      "f_stop": 8.0,
+      "focus_point_m": [
+        -0.10000000149011612,
+        -0.1599999964237213,
+        0.006000000052154064
+      ],
+      "purpose": "Opposite diagonal using the same surface"
+    },
+    {
+      "name": "04_LOW_CASE_PROFILE",
+      "location_m": [
+        0.3199999928474426,
+        -0.5799999833106995,
+        0.16599999368190765
+      ],
+      "rotation_euler_rad": [
+        1.3076679706573486,
+        -1.1895770768433067e-07,
+        0.7853981256484985
+      ],
+      "lens_mm": 90,
+      "sensor_width_mm": 36,
+      "f_stop": 8.0,
+      "focus_point_m": [
+        -0.10000000149011612,
+        -0.1599999964237213,
+        0.006000000052154064
+      ],
+      "purpose": "Low viewpoint for compatible case-profile originals"
+    },
+    {
+      "name": "05_OVERHEAD",
+      "location_m": [
+        -0.10000000149011612,
+        -0.16099999845027924,
+        0.7059999704360962
+      ],
+      "rotation_euler_rad": [
+        0.001423572306521237,
+        -0.0,
+        0.0
+      ],
+      "lens_mm": 75,
+      "sensor_width_mm": 36,
+      "f_stop": 9.0,
+      "focus_point_m": [
+        -0.10000000149011612,
+        -0.1599999964237213,
+        0.006000000052154064
+      ],
+      "purpose": "Near-overhead view for compatible front-on originals"
+    },
+    {
+      "name": "06_ENVIRONMENT",
+      "location_m": [
+        0.699999988079071,
+        -1.159999966621399,
+        0.9559999704360962
+      ],
+      "rotation_euler_rad": [
+        0.9325476288795471,
+        3.982487584153205e-08,
+        0.6747409701347351
+      ],
+      "lens_mm": 50,
+      "sensor_width_mm": 36,
+      "f_stop": 8.0,
+      "focus_point_m": [
+        -0.10000000149011612,
+        -0.1599999964237213,
+        0.006000000052154064
+      ],
+      "purpose": "Wider desk and window context"
+    }
+  ]
+}
