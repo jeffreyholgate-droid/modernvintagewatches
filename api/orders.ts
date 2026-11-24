@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
     })) });
   } catch (error) {
     if (error instanceof OrderError) {
-      if (['OPERATION_CHANGED', 'OPERATION_NOT_ALLOWED', 'REFUND_EVIDENCE_INVALID'].includes(error.code)) {
+      if (['OPERATION_CHANGED', 'OPERATION_NOT_ALLOWED', 'REFUND_EVIDENCE_INVALID', 'PAYMENT_ALREADY_REFUNDING'].includes(error.code)) {
         return json(res, 409, { error: error.code });
       }
       if (error.code === 'INVALID_ORDER') return json(res, 400, { error: 'INVALID_ORDER' });
@@ -64,8 +64,11 @@ async function manageOrder(req: any, res: any) {
   }
 
   if (revision !== (current?.revision ?? 0)) throw new OrderError('OPERATION_CHANGED');
-  if (action === 'check_refund') {
-    if (current?.state !== 'refund_requested') throw new OrderError('OPERATION_NOT_ALLOWED');
+  if (action === 'check_refund' || action === 'purchase_in_progress') {
+    const state = current?.state ?? 'awaiting_source';
+    if (state !== 'awaiting_source' && !(action === 'check_refund' && state === 'refund_requested')) {
+      throw new OrderError('OPERATION_NOT_ALLOWED');
+    }
     const key = process.env.STRIPE_SECRET_KEY?.trim();
     if (!key || !/^(?:sk|rk)_test_/.test(key)) return json(res, 503, { error: 'STRIPE_SANDBOX_UNAVAILABLE' });
     const Stripe = (await import('stripe')).default;
@@ -74,8 +77,12 @@ async function manageOrder(req: any, res: any) {
       retrieveSession: id => stripe.checkout.sessions.retrieve(id),
       listRefunds: id => stripe.refunds.list({ payment_intent: id, limit: 100 }),
     });
-    const operation = refund.complete ? await recordOperation(orderId, revision, 'refunded', null) : current;
-    return json(res, 200, { refund, operation });
+    if (action === 'check_refund') {
+      const operation = refund.complete && state === 'refund_requested'
+        ? await recordOperation(orderId, revision, 'refunded', null) : current;
+      return json(res, 200, { refund, operation });
+    }
+    if (refund.pending || refund.succeededPence > 0) throw new OrderError('PAYMENT_ALREADY_REFUNDING');
   }
 
   return json(res, 200, {

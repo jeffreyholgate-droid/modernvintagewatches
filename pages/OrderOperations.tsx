@@ -75,6 +75,7 @@ export function OrderOperations({ order, onChange }: { order: AdminOrderSummary;
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : '';
       setError(code === 'OPERATION_CHANGED' ? 'Another admin changed this order. Refresh before continuing.'
+        : code === 'PAYMENT_ALREADY_REFUNDING' ? 'Stripe shows a refund or a pending refund. Review the payment in Stripe.'
         : code === 'REFUND_EVIDENCE_INVALID' ? 'Stripe did not return matching refund evidence. Review the payment in Stripe.'
         : 'The order action could not be completed. Refresh to confirm the current state before retrying.');
     } finally {
@@ -107,6 +108,8 @@ export function OrderOperations({ order, onChange }: { order: AdminOrderSummary;
           onClick={() => window.confirm(confirm) && run({ action, revision })}>{label}</button>
       )}
       {state === 'awaiting_source' && <>
+        <button disabled={busy} className="underline disabled:opacity-50"
+          onClick={() => run({ action: 'check_refund', revision })}>Check Stripe for refunds</button>
         <label className="flex items-center gap-2">Refund reason
           <select disabled={busy} className="border border-line bg-page p-1" value={reason}
             onChange={event => setReason(event.target.value as RefundReason)}>
