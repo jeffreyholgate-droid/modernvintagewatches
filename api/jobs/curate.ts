@@ -2,7 +2,7 @@ import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
 import { requireAdmin } from '../_lib/auth.js';
 import { getItemById, updateItem, log } from '../_lib/db.js';
 import { buildCurationDraft } from '../_lib/curation.js';
-import { GeminiService } from '../../server/gemini.js';
+import { OpenAIService } from '../../server/openai.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
@@ -18,10 +18,10 @@ export default async function handler(req: any, res: any) {
 
   await log('INFO', `CURATE: start id=${id}`);
 
-  const gemini = new GeminiService();
+  const ai = new OpenAIService();
   try {
-    const normalized = await gemini.normalizeListing(item.category, item.titleRaw, 'N/A');
-    const copy = await gemini.generateCopy(item.category, normalized);
+    const normalized = await ai.normalizeListing(item.category, item.titleRaw, 'N/A');
+    const copy = await ai.generateCopy(item.category, normalized);
 
     await updateItem(id, buildCurationDraft(normalized, copy));
 

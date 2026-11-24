@@ -15,11 +15,23 @@ import "./virtual-studio.css";
 type Rendered = { imageDataUrl: string; manifest: Record<string, any> };
 const errors: Record<string, string> = {
   AI_NOT_CONFIGURED:
-    "AI is not connected. Use a transparent PNG, import a mask or use Refine mask.",
+    "OpenAI API access is not connected yet. Use a transparent PNG, import a mask or use Refine mask.",
   AI_CREDITS_DEPLETED:
-    "The MVW AI account has no prepaid credits. Restore credits in Google AI Studio, or import a mask to continue.",
-  SEGMENTATION_NOT_CONFIGURED:
-    "Automatic masking needs a configured provider. Use a transparent PNG or import a mask.",
+    "The OpenAI API project has no available quota or credits. Check its API billing, or import a mask to continue.",
+  AI_ACCESS_DENIED:
+    "OpenAI rejected API access. Check the server key and the project's image-model access.",
+  AI_MODEL_UNAVAILABLE:
+    "The configured OpenAI model is unavailable to this API project.",
+  AI_RATE_LIMITED:
+    "OpenAI is temporarily rate limiting requests. Wait a moment before trying again.",
+  AI_TIMEOUT:
+    "OpenAI preparation timed out. No automatic retry was made. Try again or import a mask.",
+  AI_SERVICE_UNAVAILABLE:
+    "OpenAI could not complete this request. Try again later or import a mask.",
+  AI_RESPONSE_INVALID:
+    "OpenAI returned an incomplete result. Try again or import a mask.",
+  AI_RESPONSE_REFUSED:
+    "OpenAI did not process this photograph. Use a manual mask or another source photograph.",
   AI_MASK_NEEDS_REVIEW:
     "The AI could not make a reliable watch mask. Import a mask or use Refine mask.",
   AI_MASK_INVALID:
@@ -74,7 +86,8 @@ export default function VirtualStudio() {
     [reviewed, setReviewed] = useState(false),
     [editing, setEditing] = useState(false),
     [compare, setCompare] = useState(false),
-    [exportReady, setExportReady] = useState<Rendered | null>(null);
+    [exportReady, setExportReady] = useState<Rendered | null>(null),
+    [aiConfigured, setAIConfigured] = useState<boolean | null>(null);
   const sourceUrl = source
       ? "url" in source
         ? source.url
@@ -85,6 +98,9 @@ export default function VirtualStudio() {
   const current = !!rendered && renderKey === JSON.stringify(recipe),
     preset = studioPresets.find((p) => p.id === recipe.preset)!;
   useEffect(() => {
+    studioRequest("GET")
+      .then((config) => setAIConfigured(config.aiConfigured))
+      .catch(() => {});
     fetchAllItems()
       .then(setItems)
       .catch(() =>
@@ -127,7 +143,7 @@ export default function VirtualStudio() {
     setExportReady(null);
     setEditing(false);
     setReviewed(false);
-    const p = await run<StudioPrepared>("Preparing watch…", () =>
+    const p = await run<StudioPrepared>("Preparing with OpenAI…", () =>
       studioRequest("POST", { action: "prepare", source, maskDataUrl }),
     );
     if (p) {
@@ -286,6 +302,13 @@ export default function VirtualStudio() {
             JPEG, PNG or WebP · up to 3 MB. Choose a complete watch at the
             intended angle.
           </p>
+          <p className="studio-small" role="status">
+            {aiConfigured === null
+              ? "Checking OpenAI setup…"
+              : aiConfigured
+                ? "OpenAI · API key configured"
+                : "OpenAI · setup needed. Connect an API key on the server for automatic preparation. Transparent PNGs and manual masks work now."}
+          </p>
           {source && (
             <>
               <img
@@ -299,7 +322,7 @@ export default function VirtualStudio() {
                 disabled={!!busy}
                 onClick={() => prepare()}
               >
-                Prepare with AI
+                Prepare with OpenAI
               </button>
               <div className="studio-toolbar">
                 <button disabled={!!busy} onClick={() => setEditing(true)}>

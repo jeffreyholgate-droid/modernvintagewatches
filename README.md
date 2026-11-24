@@ -1,7 +1,7 @@
 # Modern Vintage Watches
 
 React/Vite storefront with Vercel Node APIs, Supabase inventory, eBay sourcing,
-Gemini-assisted description drafts and a guarded Stripe integration.
+OpenAI-assisted description drafts and a guarded Stripe integration.
 
 The business sources watches from eBay after a customer places an order.
 The recovery branch is **not ready to accept real orders**. Checkout defaults
@@ -121,7 +121,7 @@ changes. Keep previews isolated from production data.
 | ADMIN_PASSWORD, ADMIN_JWT_SECRET | Admin authentication |
 | EBAY_CLIENT_ID, EBAY_CLIENT_SECRET | eBay application OAuth credentials |
 | EBAY_ENV, EBAY_MARKETPLACE_ID | Source environment and market (production / EBAY_GB) |
-| GEMINI_API_KEY, GEMINI_MODEL | AI draft generation |
+| OPENAI_API_KEY, OPENAI_TEXT_MODEL, OPENAI_IMAGE_MODEL | AI drafts and studio preparation (server only) |
 | STRIPE_SECRET_KEY | Stripe test credentials for validation |
 | STRIPE_WEBHOOK_SECRET | Signing secret for this deployment's test-mode webhook endpoint |
 | PUBLIC_SITE_URL | Trusted HTTPS return origin for this deployment |

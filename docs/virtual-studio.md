@@ -1,20 +1,24 @@
-# MVW Oak Study studio — preview v01
+# MVW Oak Study studio — OpenAI preview v02
 
 Open `/#/admin/studio` and sign in with the existing preview admin credentials. The Photo studio link is in the admin navigation. This branch adds an admin tool and authenticated API; it does not rewrite listing photos or save anything to the catalogue.
 
 ## Working flow
 
 1. Choose an MVW listing and source photograph, or upload JPEG/PNG/WebP (up to 3 MiB).
-2. Prepare with AI when configured, or use a transparent PNG/imported black-and-white mask. White keeps the original photograph; black removes it. Refine mask provides restore/erase brushes and undo.
+2. Prepare with OpenAI when configured, or use a transparent PNG/imported black-and-white mask. White keeps the original photograph; black removes it. Refine mask provides restore/erase brushes and undo.
 3. Match a saved camera view to the source. Adjust placement, background exposure, warmth, directional falloff, extra softness, contact shadow and projected silhouette shadow. Render preview applies the controls.
 4. Compare the original, check edges and watch condition, then acknowledge review. Export downloads a PNG and a JSON recipe including the mask and source/output hashes. Changing a control invalidates the review.
 5. Save/open session retains the source, mask, analysis and controls locally in a JSON file. An uploaded source is embedded in that file. Treat it as the original photograph, not a public URL.
 
 ## AI status and limits
 
-The MVW Gemini account returned HTTP 402 (prepaid credits depleted) during the live integration test on 24 November 2026. Therefore automatic preparation has NOT passed a live end-to-end quality check. Manual masks and transparent inputs work without an AI request.
+OpenAI is the only AI provider in this branch, for studio preparation and catalogue drafts. Set server-only `OPENAI_API_KEY` in this branch's Vercel Preview environment and redeploy. Never use a `VITE_` prefix or put the key in a saved session, browser request or source control. The studio configuration endpoint reports whether a key is present, not whether billing or model access has been verified. Existing credentials for other providers are unused by this code; the legacy SDK has been removed.
 
-`STUDIO_SEGMENTATION_MODEL` is an explicit experimental raster-mask adapter with no production default. The preview uses `gemini-2.5-flash` pending testing. Google's published deprecation date/rerouting is 1 December 2026; do not assume its replacement supports raster masks. Validate and replace the segmentation adapter before production. Invalid/missing raster masks fail visibly rather than turning into a rectangle. Gemini analyses camera/lighting/occlusion; its recommendation is not authentication or condition verification.
+The default text model is `gpt-6.2-sol` (`OPENAI_TEXT_MODEL`, optionally `OPENAI_STUDIO_ANALYSIS_MODEL`). The image model is `gpt-image-2.6-sunburst` (`OPENAI_IMAGE_MODEL`). Native server-side requests go only to `api.openai.com/v1/responses` and `/v1/images/edits`, with bounded responses and no automatic paid retries. Responses requests use strict structured output and `store: false`.
+
+For an opaque photo, one vision assessment and one transparent image edit run concurrently. The edit's RGB is discarded: only its alpha channel becomes a candidate mask over the original photograph. The assessment suggests a saved camera plate and lighting direction. Input resizing and padding meet the image API's dimensions; output canvas size, alpha coverage and coarse RGB alignment are checked. This is an experimental image-edit isolation method, not guaranteed pixel-accurate segmentation. Incorrect mask edges or hidden parts still need manual review. Assessment does not verify authenticity or condition.
+
+No OpenAI API key was configured at the migration checkpoint on 24 November 2026. Live automatic preparation and finished real-watch photographic quality therefore remain unverified. Manual masks and transparent inputs work without any AI account. ChatGPT and API billing are managed separately; eligible subscription promotions may provide API credits, but the website still requires API access.
 
 The renderer uses seven saved plates: the preferred photographic oak reference and six renders from the shared Blender set. The latter are material prototypes. Saved plates have baked focus, light and reflections; controls add background softness/exposure and approximate shadows. This is not a live Blender renderer, reconstructed watch geometry, physically accurate relighting, or a guarantee of seamless photographic integration. Original watch reflections remain. Choose compatible source lighting and pose; ask for a better source when the watch is held, cut off or obscured. Never invent unseen surfaces.
 
@@ -49,7 +53,7 @@ For larger lossless outputs, call `render` with `responseFormat: "png"`. The res
 
 `source` is exactly one of `{url}` or `{dataUrl}`. URLs are HTTPS on `i.ebayimg.com`, the configured Supabase host, or explicit `STUDIO_IMAGE_HOSTS` entries. Redirects are rejected. Download bytes, decoded pixels and JSON body/response sizes are bounded. Uploads are not persisted. Exports require `export: true, reviewed: true`; this is an acknowledgement from the authenticated caller, not an approval signature or separate publishing authority.
 
-Safe error codes include `UNAUTHORIZED`, `AI_CREDITS_DEPLETED`, `AI_NOT_CONFIGURED`, `SEGMENTATION_NOT_CONFIGURED`, `AI_MASK_NEEDS_REVIEW`, `SOURCE_CHANGED`, `MASK_NEEDS_REVIEW`, `WATCH_OUTSIDE_FRAME` and `EXPORT_TOO_LARGE`. Retry a smaller size for large outputs; do not automatically retry paid AI calls indefinitely.
+Safe error codes include `UNAUTHORIZED`, `AI_CREDITS_DEPLETED`, `AI_NOT_CONFIGURED`, `AI_ACCESS_DENIED`, `AI_MODEL_UNAVAILABLE`, `AI_RATE_LIMITED`, `AI_TIMEOUT`, `AI_RESPONSE_INVALID`, `AI_MASK_NEEDS_REVIEW`, `SOURCE_CHANGED`, `MASK_NEEDS_REVIEW`, `WATCH_OUTSIDE_FRAME` and `EXPORT_TOO_LARGE`. Provider access failures return 503 rather than an MVW authentication failure; rate limits return 429 and timeouts 504. Provider messages and keys are never returned. Retry a smaller size for large outputs; do not automatically retry paid AI calls indefinitely.
 
 ## Development and deployment
 
@@ -59,6 +63,6 @@ Branch `codex/mvw-virtual-studio` is isolated from `codex/mvw-recovery`. Automat
 
 Preview must use `https://aognusoolndwhmcprter.supabase.co`, its service key, preview admin credentials and `CHECKOUT_ENABLED=false`. Do not inherit global production database credentials. `vercel.json` bundles studio plates with the serverless function. The verified preview is https://mvw-studio-preview.vercel.app/#/admin/studio, protected by Vercel authentication and MVW admin sign-in.
 
-Validation: 142 tests passed, TypeScript passed, production build passed. Browser checks covered inventory selection, transparent upload, preparation, 1200 px rendering, mask editor opening, and review invalidation after a control change. Hosted API checks confirmed preparation, 1200 x 1200 binary PNG output and unauthenticated 401 responses. The in-app browser blocks data-URL file downloads, so its download-to-disk UI could not be verified; export links and actual hosted PNG bytes were verified separately. No real-watch automatic mask or finished photographic composite has passed quality review while AI credits are unavailable.
+Validation: all 152 tests passed, TypeScript checking passed and the production build passed. The OpenAI regression tests mock provider responses to check exclusive provider routing, strict response handling, quota/access failures, dimensions, candidate mask rejection and original RGB preservation. They do not demonstrate real provider image quality. Earlier browser checks covered inventory selection, transparent upload, preparation, 1200 px rendering, mask editor opening and review invalidation. The in-app browser blocks data-URL file downloads, so its download-to-disk UI could not be verified; export links and actual hosted PNG bytes were verified separately.
 
-References: [Google image understanding](https://aistudio.google.com/docs/image-understanding), [model deprecations](https://aistudio.google.com/docs/deprecations), [Sharp compositing](https://sharp.pixelplumbing.com/api-composite/).
+References: [OpenAI image generation and editing](https://developers.openai.com/api/docs/guides/image-generation), [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [ChatGPT and API billing](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform), [Sharp compositing](https://sharp.pixelplumbing.com/api-composite/).

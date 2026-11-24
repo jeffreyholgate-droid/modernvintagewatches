@@ -21,7 +21,7 @@ try {
     source.width,
     source.height,
     "AI configured:",
-    Boolean(process.env.GEMINI_API_KEY),
+    Boolean(process.env.OPENAI_API_KEY),
   );
   const prepared = await prepareWatch(source);
   await mkdir(destination, { recursive: true });
@@ -41,7 +41,7 @@ try {
     "SMOKE_FAILED",
     e.status || "",
     String(e.message)
-      .replace(/AIza[\w-]+/g, "[redacted]")
+      .replace(/sk-[\w-]+/g, "[redacted]")
       .slice(0, 700),
   );
   process.exitCode = 1;

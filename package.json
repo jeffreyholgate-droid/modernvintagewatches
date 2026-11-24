@@ -14,7 +14,6 @@
     "test": "node scripts/test.mjs"
   },
   "dependencies": {
-    "@google/genai": "^1.52.0",
     "@supabase/supabase-js": "^2.49.1",
     "jose": "^5.10.0",
     "react": "^19.2.4",

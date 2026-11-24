@@ -89,6 +89,11 @@ export type StudioAnalysis = {
   height: number;
   maskSha256: string;
   method: "ai" | "source-alpha" | "manual";
+  provider?: "openai";
+  analysisModel?: string;
+  maskModel?: string;
+  maskMethod?: "image-edit-alpha";
+  alignmentError?: number;
   reviewRequired: true;
 };
 export type StudioPrepared = {

@@ -1,6 +1,6 @@
 {
   "name": "Chronos Fine Timepieces",
-  "description": "A luxury watch boutique powered by an autonomous sourcing agent and Gemini AI.",
+  "description": "A luxury watch boutique with sourcing tools and OpenAI-assisted catalogue drafts.",
   "requestFramePermissions": [
     "camera"
   ]

@@ -10,6 +10,11 @@ import {
 } from "./_lib/studio/images.js";
 import { prepareWatch } from "./_lib/studio/ai.js";
 import { compositeWatch } from "./_lib/studio/render.js";
+import {
+  openAIConfigured,
+  openAITextModel,
+  openAIImageModel,
+} from "../server/openai-client.js";
 
 export const config = { maxDuration: 180 };
 const MAX_BODY = 4_000_000;
@@ -71,6 +76,14 @@ const safeErrors = new Set([
   "MASK_NEEDS_REVIEW",
   "EMPTY_MASK",
   "AI_NOT_CONFIGURED",
+  "AI_CREDITS_DEPLETED",
+  "AI_ACCESS_DENIED",
+  "AI_MODEL_UNAVAILABLE",
+  "AI_RATE_LIMITED",
+  "AI_TIMEOUT",
+  "AI_SERVICE_UNAVAILABLE",
+  "AI_RESPONSE_INVALID",
+  "AI_RESPONSE_REFUSED",
   "AI_ANALYSIS_INVALID",
   "AI_MASK_NEEDS_REVIEW",
   "AI_MASK_INVALID",
@@ -94,7 +107,10 @@ export default async function handler(req: any, res: any) {
     return json(res, 200, {
       ok: true,
       presets: studioPresets,
-      aiConfigured: Boolean(process.env.GEMINI_API_KEY || process.env.API_KEY),
+      aiConfigured: openAIConfigured(),
+      aiProvider: "openai",
+      textModel: process.env.OPENAI_STUDIO_ANALYSIS_MODEL || openAITextModel(),
+      imageModel: openAIImageModel(),
       productPixelsProtected: true,
       renderMode: "fixed-studio-plate",
       maxUploadBytes: 3 * 1024 * 1024,
@@ -162,26 +178,34 @@ export default async function handler(req: any, res: any) {
   } catch (error) {
     const msg = error instanceof Error ? error.message : "";
     const code =
-      (error as any)?.status === 402
-        ? "AI_CREDITS_DEPLETED"
-        : msg === "SEGMENTATION_NOT_CONFIGURED"
-          ? msg
-          : safeErrors.has(msg) || msg.startsWith("INVALID_CONTROL_")
-            ? msg
-            : "STUDIO_PROCESSING_FAILED";
+      safeErrors.has(msg) || msg.startsWith("INVALID_CONTROL_")
+        ? msg
+        : "STUDIO_PROCESSING_FAILED";
     return json(
       res,
-      code === "AI_NOT_CONFIGURED"
+      [
+        "AI_NOT_CONFIGURED",
+        "AI_CREDITS_DEPLETED",
+        "AI_ACCESS_DENIED",
+        "AI_MODEL_UNAVAILABLE",
+        "AI_SERVICE_UNAVAILABLE",
+      ].includes(code)
         ? 503
-        : code === "SOURCE_CHANGED" || code === "REVIEW_REQUIRED"
-          ? 409
-          : code === "REQUEST_TOO_LARGE" ||
-              code === "IMAGE_TOO_LARGE" ||
-              code === "EXPORT_TOO_LARGE"
-            ? 413
-            : code === "STUDIO_PROCESSING_FAILED"
+        : code === "AI_RATE_LIMITED"
+          ? 429
+          : code === "AI_TIMEOUT"
+            ? 504
+            : code === "AI_RESPONSE_INVALID"
               ? 502
-              : 400,
+              : code === "SOURCE_CHANGED" || code === "REVIEW_REQUIRED"
+                ? 409
+                : code === "REQUEST_TOO_LARGE" ||
+                    code === "IMAGE_TOO_LARGE" ||
+                    code === "EXPORT_TOO_LARGE"
+                  ? 413
+                  : code === "STUDIO_PROCESSING_FAILED"
+                    ? 502
+                    : 400,
       { error: code },
     );
   }

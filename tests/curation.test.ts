@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import handler from '../api/jobs/curate.js';
 import { signAdminToken } from '../api/_lib/auth.js';
 import { getItemById, getLogs, upsertItems } from '../api/_lib/db.js';
-import { GeminiService } from '../server/gemini.js';
+import { OpenAIService } from '../server/openai.js';
 import { Category, PublishState } from '../types.js';
 
 test('AI curation saves only drafts and failed generation preserves them without exposing provider details', async () => {
@@ -21,9 +21,9 @@ test('AI curation saves only drafts and failed generation preserves them without
       locationCountry: 'GB', imageUrls: [], status: 'ACTIVE', lastSeenAt: new Date().toISOString(),
       firstSeenAt: new Date().toISOString(), publishStatus: PublishState.UNPUBLISHED, score: 0,
     }]);
-    mock.method(GeminiService.prototype, 'normalizeListing', async () => ({ brand: 'Omega', model: 'Seamaster' }));
+    mock.method(OpenAIService.prototype, 'normalizeListing', async () => ({ brand: 'Omega', model: 'Seamaster' }));
     let shouldFail = false;
-    mock.method(GeminiService.prototype, 'generateCopy', async () => {
+    mock.method(OpenAIService.prototype, 'generateCopy', async () => {
       if (shouldFail) throw new Error('provider-request-contained-secret-sentinel');
       return { long_description: 'Generated description for human review.' };
     });

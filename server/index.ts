@@ -7,12 +7,12 @@
 // Basic Express scaffolding (Conceptual)
 /*
 import express from 'express';
-import { GeminiService } from './gemini.js';
+import { OpenAIService } from './openai.js';
 import { EbayClient } from './ebay.js';
 import { TileService } from './tiles.js';
 
 const app = express();
-const gemini = new GeminiService();
+const ai = new OpenAIService();
 const ebay = new EbayClient();
 const tileGen = new TileService();
 
@@ -21,7 +21,7 @@ app.get('/api/health', (req, res) => res.json({ status: 'OK' }));
 app.post('/api/jobs/ingest/run', async (req, res) => {
   // 1. Fetch from eBay
   // 2. Score
-  // 3. Normalize with Gemini
+  // 3. Normalize with OpenAI
   // 4. Save to DB
   res.json({ success: true, message: 'Ingest triggered' });
 });
