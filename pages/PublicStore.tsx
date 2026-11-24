@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { globalStore, AppStateItem } from '../lib/store';
+import type { AppStateItem } from '../lib/store';
+import { fetchPublicItems } from '../lib/api';
 import { Category, PublishState } from '../types';
 import { formatPence, publicPrice } from '../lib/cart-pricing';
 
@@ -19,23 +20,11 @@ const PublicStore: React.FC = () => {
     let alive = true;
     setLoading(true);
     setLoadError(false);
-    const updateItems = () => {
-      if (!alive) return;
-      const all = globalStore.getItems();
-      setItems(all.filter((i) => i.publishStatus === PublishState.PUBLISHED));
-    };
-    (async () => {
-      try {
-        await globalStore.refresh({ admin: false });
-      } catch {
-        if (alive) setLoadError(true);
-      } finally {
-        if (alive) setLoading(false);
-      }
-      updateItems();
-    })();
-    const unsubscribe = globalStore.subscribe(updateItems);
-    return () => { alive = false; unsubscribe(); };
+    fetchPublicItems()
+      .then(value => { if (alive) setItems(value.filter(item => item.publishStatus === PublishState.PUBLISHED)); })
+      .catch(() => { if (alive) setLoadError(true); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
   }, [retry]);
 
   const filtered = useMemo(() => {
@@ -70,13 +59,15 @@ const PublicStore: React.FC = () => {
               Curated pre‑owned timepieces.
             </h1>
             <p className="mt-3 text-sm text-muted max-w-2xl leading-relaxed">
-              Clean listings, transparent pricing, and a boutique experience — inspired by the editorial simplicity of modern luxury retail.
+              Explore the collection of pre-owned watches. Prices include UK delivery.
             </p>
           </div>
 
           <div className="w-full md:w-[420px]">
-            <label className="text-[10px] uppercase tracking-widest text-muted">Search</label>
+            <label htmlFor="watch-search" className="text-[10px] uppercase tracking-widest text-muted">Search</label>
             <input
+              id="watch-search"
+              type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Brand, model, reference…"
@@ -95,6 +86,7 @@ const PublicStore: React.FC = () => {
               return (
                 <button
                   key={cat}
+                  aria-pressed={active}
                   onClick={() => setActiveCategory(cat)}
                   className={
                     `text-xs uppercase tracking-[0.25em] px-3 py-2 border ` +
@@ -108,8 +100,9 @@ const PublicStore: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3">
-            <label className="text-[10px] uppercase tracking-widest text-muted">Sort</label>
+            <label htmlFor="watch-sort" className="text-[10px] uppercase tracking-widest text-muted">Sort</label>
             <select
+              id="watch-sort"
               value={sort}
               onChange={(e) => setSort(e.target.value as SortMode)}
               className="border border-line px-3 py-2 text-sm bg-white outline-none focus:border-black"

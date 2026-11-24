@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cartTotalPence, publicPrice, quotedCartLine, reconcileCart, removeVerifiedPaidItems, restoreCart } from '../lib/cart-pricing.js';
-import { checkoutAttemptKey, checkoutNeedsPriceRefresh, hasCheckoutAttempt, requestCheckout, resumeExistingCheckout, type CheckoutAttemptStorage } from '../lib/checkout.js';
+import { checkoutAttemptKey, checkoutNeedsPriceRefresh, hasCheckoutAttempt, recentCheckout, requestCheckout, resumeExistingCheckout, type CheckoutAttemptStorage } from '../lib/checkout.js';
 
 function item(id='watch-a',amount=125500) {
   return {id,titleBoutique:'Reviewed watch',status:'ACTIVE',publishStatus:'PUBLISHED',imageUrls:['https://example.com/watch.jpg'],
@@ -111,4 +111,22 @@ test('unpaid, pending, inconsistent or malformed confirmations preserve the whol
     ...['pending_payment','payment_review','expired',undefined].map(orderStatus=>({...confirmed,orderStatus})),
     ...[undefined,[],['watch-a','watch-a'],[' watch-a'],[null],['watch-a\n'],Array(21).fill('watch-a')].map(itemIds=>({...confirmed,itemIds})),
   ])assert.equal(removeVerifiedPaidItems(lines,response),lines);
+});
+
+test('the Stripe cancel page can resume a Buy Now order independently of the bag', async () => {
+  const attempts = storage();
+  const lines = [{ id: 'buy-now-watch', qty: 1, expectedAmountPence: 300000 }];
+  assert.equal(recentCheckout(attempts), null);
+  await requestCheckout(lines, async () => Response.json({
+    id: 'cs_test_buyNow', status: 'open', url: 'https://checkout.stripe.com/c/pay/cs_test_buyNow',
+  }), attempts);
+  const last = recentCheckout(attempts);
+  assert.deepEqual(last, [{ id: 'buy-now-watch', qty: 1 }]);
+  await assert.rejects(resumeExistingCheckout(last!, async (_url, options) => {
+    const payload = JSON.parse(String(options?.body));
+    assert.equal(payload.checkoutKey, checkoutAttemptKey(lines, attempts));
+    assert.deepEqual(payload.lines, last);
+    return Response.json({ error: 'CHECKOUT_EXPIRED' }, { status: 409 });
+  }, attempts), /expired/);
+  assert.equal(recentCheckout(attempts), null);
 });

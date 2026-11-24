@@ -1,5 +1,6 @@
 type CheckoutRequestLine = { id: string; qty: number; expectedAmountPence?: number };
 export type CheckoutAttemptStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
+const RECENT_CHECKOUT = 'mvw.checkout.recent.v1';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function attemptStorageKey(lines: CheckoutRequestLine[]) {
@@ -90,7 +91,24 @@ export async function requestCheckout(
   if (url.protocol !== 'https:' || url.hostname !== 'checkout.stripe.com' || url.port || url.username || url.password) {
     throw new Error(errors.CHECKOUT_UNAVAILABLE);
   }
+  // Keep the originating basket for Stripe's generic cancel URL, including Buy Now
+  // orders and orders started while the bag contained unrelated products.
+  try {
+    attempts.setItem(RECENT_CHECKOUT, JSON.stringify(lines.map(({ id, qty }) => ({ id, qty }))));
+  } catch { /* The retry key was already stored. Bag checkout can still be resumed. */ }
   return url.href;
+}
+
+export function recentCheckout(storage?: CheckoutAttemptStorage): CheckoutRequestLine[] | null {
+  try {
+    const attempts = storage ?? globalThis.sessionStorage;
+    const lines: unknown = JSON.parse(attempts.getItem(RECENT_CHECKOUT) || 'null');
+    if (!Array.isArray(lines) || !lines.length || lines.length > 20 ||
+        lines.some(line => !line || typeof line.id !== 'string' || !line.id || line.id.length > 200 || line.qty !== 1) ||
+        new Set(lines.map(line => line.id)).size !== lines.length) return null;
+    const basket = lines.map(({ id, qty }) => ({ id, qty }));
+    return hasCheckoutAttempt(basket, attempts) ? basket : null;
+  } catch { return null; }
 }
 
 export function checkoutErrorMessage(error: unknown): string {
