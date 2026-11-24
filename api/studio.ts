@@ -10,6 +10,7 @@ import {
 } from "./_lib/studio/images.js";
 import { prepareWatch } from "./_lib/studio/ai.js";
 import { compositeWatch } from "./_lib/studio/render.js";
+import { photographWatch } from "./_lib/studio/photograph.js";
 import { openAIConfigured, openAITextModel } from "../server/openai-client.js";
 
 export const config = { maxDuration: 180 };
@@ -85,6 +86,16 @@ const safeErrors = new Set([
   "AI_ANALYSIS_INVALID",
   "AI_MASK_NEEDS_REVIEW",
   "AI_MASK_INVALID",
+  "AI_SCENE_INVALID",
+  "AI_SCENE_ALIGNMENT",
+  "SCENE_SOURCE_TOO_SMALL",
+  "SOURCE_TOO_SMALL_FOR_HERO",
+  "INVALID_PHOTOGRAPH_STYLE",
+  "INVALID_PHOTOGRAPH_REFERENCE",
+  "INVALID_PHOTOGRAPH_REQUEST",
+  "PHOTOGRAPH_REQUIRES_OPAQUE_SOURCE",
+  "PHOTOGRAPH_GEOMETRY_MISMATCH",
+  "PHOTOGRAPH_PRESERVATION_FAILED",
   "INVALID_RECIPE",
   "UNSUPPORTED_RECIPE_VERSION",
   "INVALID_PRESET",
@@ -111,6 +122,7 @@ export default async function handler(req: any, res: any) {
       isolationMode: "source-coordinate-grabcut",
       productPixelsProtected: true,
       renderMode: "fixed-studio-plate",
+      photographMode: "source-matched-scene",
       maxUploadBytes: 3 * 1024 * 1024,
       publication: "manual-review-only",
     });
@@ -127,7 +139,7 @@ export default async function handler(req: any, res: any) {
         "action",
       ) ||
       input.action;
-    if (!["prepare", "render", "compose"].includes(action))
+    if (!["prepare", "render", "compose", "photograph"].includes(action))
       return json(res, 400, { error: "INVALID_ACTION" });
     const source = await loadSource(input.source);
     if (input.sourceSha256 && input.sourceSha256 !== source.sha256)
@@ -143,16 +155,29 @@ export default async function handler(req: any, res: any) {
       prepared = await prepareWatch(source, input.maskDataUrl);
     const mask = prepared
       ? decodeImageData(prepared.maskDataUrl)
-      : await normalizeMask(
-          decodeImageData(input.maskDataUrl),
-          source.width,
-          source.height,
-        );
+      : action === "photograph"
+        ? decodeImageData(input.maskDataUrl)
+        : await normalizeMask(
+            decodeImageData(input.maskDataUrl),
+            source.width,
+            source.height,
+          );
+    if (action === "photograph" && !input.sourceSha256)
+      throw new Error("SOURCE_CHANGED");
     const recipe = parseRecipe(input.recipe || prepared?.recipe || {});
-    const result = await compositeWatch(source, mask, recipe);
+    const result =
+      action === "photograph"
+        ? await photographWatch(source, mask, {
+            stylePreset: "oak-study",
+            referenceAssetPath: "public/studio/study-atmosphere-approved.jpg",
+          })
+        : await compositeWatch(source, mask, recipe);
     if (input.export === true && input.reviewed !== true)
       throw new Error("REVIEW_REQUIRED");
-    if (input.responseFormat === "png" && action === "render") {
+    if (
+      input.responseFormat === "png" &&
+      ["render", "photograph"].includes(action)
+    ) {
       if (result.png.length > 4_300_000) throw new Error("EXPORT_TOO_LARGE");
       res.setHeader("Content-Type", "image/png");
       res.setHeader(

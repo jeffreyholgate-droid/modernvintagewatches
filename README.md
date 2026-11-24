@@ -121,7 +121,7 @@ changes. Keep previews isolated from production data.
 | ADMIN_PASSWORD, ADMIN_JWT_SECRET | Admin authentication |
 | EBAY_CLIENT_ID, EBAY_CLIENT_SECRET | eBay application OAuth credentials |
 | EBAY_ENV, EBAY_MARKETPLACE_ID | Source environment and market (production / EBAY_GB) |
-| OPENAI_API_KEY, OPENAI_TEXT_MODEL, OPENAI_STUDIO_ANALYSIS_MODEL | AI drafts and studio preparation (server only) |
+| OPENAI_API_KEY, OPENAI_TEXT_MODEL, OPENAI_STUDIO_ANALYSIS_MODEL, OPENAI_STUDIO_SCENE_MODEL | AI drafts and studio preparation (server only) |
 | STRIPE_SECRET_KEY | Stripe test credentials for validation |
 | STRIPE_WEBHOOK_SECRET | Signing secret for this deployment's test-mode webhook endpoint |
 | PUBLIC_SITE_URL | Trusted HTTPS return origin for this deployment |

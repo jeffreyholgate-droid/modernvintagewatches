@@ -1,36 +1,36 @@
-# MVW Oak Study studio — OpenAI preview v04
+# MVW Oak Study studio — source-matched photography preview v05
 
 Open `/#/admin/studio` and sign in with the existing preview admin credentials. The Photo studio link is in the admin navigation. This branch adds an admin tool and authenticated API; it does not rewrite listing photos or save anything to the catalogue.
 
 ## Working flow
 
-1. Choose an MVW listing and source photograph, or upload JPEG/PNG/WebP (up to 3 MiB).
-2. Prepare with OpenAI when configured, or use a transparent PNG/imported black-and-white mask. White keeps the original photograph; black removes it. Refine mask provides restore/erase brushes and undo.
-3. Match a saved camera view to the source. Adjust placement, background exposure, warmth, directional falloff, extra softness, contact shadow, support angle and projected silhouette shadow. Render preview applies the controls.
-4. Compare the original, check edges and watch condition, then acknowledge review. Export downloads a PNG and a JSON recipe including the mask and source/output hashes. Changing a control invalidates the review.
-5. Save/open session retains the source, mask, analysis and controls locally in a JSON file. An uploaded source is embedded in that file. Treat it as the original photograph, not a public URL.
+1. Select an MVW photograph or upload the original JPEG/PNG/WebP. Eligible eBay thumbnails are upgraded to the same image's 1600px source. The watch must occupy at least 600px along its long side and 350px along its short side after any downsampling. A tiny product crop cannot become a detailed hero photograph.
+2. Use Prepare with OpenAI to create a source-coordinate mask and assessment. Refine mask if needed, especially blurred straps, reflective edges, and real openings. This makes one Responses API request for opaque images; manual masks and transparent inputs bypass it.
+3. Photograph mode is primary. Explicitly click Photograph in the study to make one Images Edits request. The environment is built around the original camera, pose and supporting surface. The server masks the product, checks generated-image alignment, then restores protected source RGB. It never uses generated watch RGB in the protected core.
+4. Review the source beside the result, including dial, hands, wear, silhouette, real support geometry and shadows. Review remains required even when pixel and alignment checks pass. Export the returned PNG and manifest; exporting does not make another paid request.
+5. Save/Open session retains the original, mask, completed scene and provenance locally. A reopened scene needs fresh review, but no regeneration. A new source or mask invalidates the scene; switching modes invalidates review.
 
-## AI status and limits
+Manual plates remain a separate mode for compatible sources. Their placement, rotation, background exposure/warmth/focus and contact/cast shadow controls apply only to those fixed plates. A generated photograph is a complete image; those manual controls do not silently change it. A fresh generated scene requires another explicit request.
 
-OpenAI is the only AI provider in this branch, for studio preparation and catalogue drafts. Set server-only `OPENAI_API_KEY` in this branch's Vercel Preview environment and redeploy. Never use a `VITE_` prefix or put the key in a saved session, browser request or source control. The studio configuration endpoint reports whether a key is present, not whether billing or model access has been verified. Existing credentials for other providers are unused by this code; the legacy SDK has been removed.
+## Approved direction and accuracy
 
-The default vision/text model is `gpt-6.2-sol` (`OPENAI_TEXT_MODEL`, optionally `OPENAI_STUDIO_ANALYSIS_MODEL`). Native server-side AI requests go only to `api.openai.com/v1/responses`, with bounded responses, strict structured output, `store: false`, and no automatic paid retries. Watch preparation does not call an image generator.
+The user rejected the v04 Clifton composite: exact retained RGB did not overcome its soft 390px product crop, incompatible studio lighting/perspective, weak contact and rough mask boundary. That image is not the visual benchmark.
 
-For an opaque photo, one vision request identifies the complete visible watch outline, genuine background holes, foreground/background seed points, source pose and lighting. Coordinates refer to the full, auto-oriented source image. A local OpenCV GrabCut pass refines the edge against the original photograph. The eroded interior is protected so a white dial or bright reflection is not removed merely because it resembles the background. Only the alpha mask changes: the cutout takes RGB directly from the normalized source. No watch RGB comes back from AI. Processing is capped at 1200 pixels along the working crop; the mask is mapped back to the exact full source frame. Malformed or unusable geometry fails with a safe error.
+On 24 November 2026, the user approved a close Breitling B09 scene created by editing the environment around its original resting pose. The approved creative reference was generated with the built-in image tool. The app's API implementation is a separate workflow, with mask review, source restoration and geometry checks. The approved reference alone does not prove untouched watch pixels. `public/studio/study-atmosphere-approved.jpg` contains only the approved distant background, with no watch or competing desk geometry.
 
-Automatic masks still need edge review, especially on low-contrast straps, reflective metal, bracelet gaps, or a busy background. Refine mask remains available. A hidden or cropped watch surface cannot be recovered without inventing it, so choose another source photograph. Transparent inputs and manual masks do not make an AI request. Assessment does not verify authenticity or condition.
+OpenAI is the only external AI provider. Set server-only `OPENAI_API_KEY`; never expose it in VITE variables, browser JavaScript or sessions. Vision defaults to `gpt-6.2-sol` (`OPENAI_TEXT_MODEL` or `OPENAI_STUDIO_ANALYSIS_MODEL`). Environment editing defaults to `gpt-image-2.6-sunburst` (`OPENAI_STUDIO_SCENE_MODEL`). The key needs Responses write and Images request access. One preparation plus one photograph uses two explicit AI requests; downloads and session reopening use none. Calls have bounded responses, timeouts and no automatic paid retries.
 
-Live validation on 24 November 2026 used a Cartier Santos 100 and a Baume & Mercier Clifton M0A10303 from the MVW inventory. The new source-coordinate pipeline completed successfully for both. Before resizing, 492,138 fully opaque Cartier pixels and 68,936 fully opaque Clifton pixels matched normalized source RGB exactly (zero changed colour channels). These counts describe those test masks, not an accuracy guarantee for every boundary. The Clifton source has only about 390 pixels of watch width and a reflection across its crystal; the example retains that real detail and does not upscale it.
+Vision returns a full-source outline, real holes and foreground/background points. Local OpenCV GrabCut refines the edge and protects the dial/interior. Masks are not guaranteed correct: soft boundaries and source-colored material can still need manual refinement. Hidden surfaces and cropped strap ends must not be reconstructed.
 
-ChatGPT and API billing are managed separately. An eligible subscription benefit can fund API usage without reducing normal ChatGPT or signed-in Codex allowances. The claim flow warns that accepting this benefit disables Codex access through the receiving organization's API keys, including purchased-credit usage; this does not affect the studio's Responses endpoint. Review current benefit terms when provisioning another account.
+The scene request retains source framing, pads to valid image-API dimensions and never enlarges the watch. Sources longer than 1536px are uniformly downsampled once; the manifest records this scale. After generation, feature alignment checks compare watch geometry. Only small, strongly supported global movement may be corrected by transforming the generated surroundings; the original product is not warped. Large, unsupported or nonrigid movement is rejected. The final source frame is cropped from any padding.
 
-The renderer uses seven saved plates: the preferred photographic oak reference and six renders from the shared Blender set. The latter are material prototypes. Saved plates have baked focus, light and reflections; controls add background softness/exposure and approximate shadows. This is not a live Blender renderer, reconstructed watch geometry, physically accurate relighting, or a guarantee of seamless photographic integration. Original watch reflections remain. Choose compatible source lighting and pose; ask for a better source when the watch is held, cut off or obscured. Never invent unseen surfaces.
+Every fully protected source pixel is restored and checked by decoding the final PNG. Soft mask boundaries remain alpha blends, avoiding opaque background halos. The manifest records the protected-pixel count, source/mask/output hashes, alignment evidence, source scale, `backgroundGenerated:true`, `productGenerated:false` and `reviewRequired:true`. These checks establish protected pixel preservation and supported registration, not automatic photographic quality. Inspect case/strap contact, mask leakage, reflections and background realism before use. An explicitly reviewed support mask is available to server callers; the public action does not infer one from the watch silhouette.
 
-The cutout retains the normalized source RGB exactly. Subsequent uniform resizing and in-plane rotation resample those pixels normally. The default edge feather is zero to avoid carrying source-background colour into a halo; the segmentation mask already has a subpixel transition. Contact height and support angle align the shadow to the visible resting edge. No perspective warp, dial reconstruction or generative watch repainting. This protects listing accuracy but limits how far a mismatched source can be harmonized.
+The six 3D plates remain material prototypes. The user-approved approach adapts the environment to a real source angle; it cannot create an unseen side of the actual watch.
 
 ## API contract
 
-`GET /api/studio` returns presets and configuration status. `POST /api/studio` accepts JSON with `action: prepare | render | compose`. Authentication is an existing admin Bearer JWT or a server-only `MVW_STUDIO_SERVICE_KEY` of at least 32 characters. Never expose a service key in browser JavaScript or VITE variables.
+`GET /api/studio` returns presets and configuration status. `POST /api/studio` accepts JSON with `action: prepare | photograph | render | compose`. Authentication is an existing admin Bearer JWT or a server-only `MVW_STUDIO_SERVICE_KEY` of at least 32 characters. Never expose a service key in browser JavaScript or VITE variables.
 
 ```js
 const response = await fetch(`${MVW_ORIGIN}/api/studio`, {
@@ -40,18 +40,20 @@ const response = await fetch(`${MVW_ORIGIN}/api/studio`, {
     "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    action: "compose",
+    action: "photograph",
     source: { url: watch.imageUrls[0] },
-    // Optional: maskDataUrl for a prepared/manual full-frame grayscale PNG.
-    recipe: { preset: "oak-reference", format: "square", size: 1200 },
+    sourceSha256: prepared.analysis.sourceSha256,
+    maskDataUrl: prepared.maskDataUrl,
+    responseFormat: "png",
   }),
 });
 if (!response.ok) throw new Error((await response.json()).error);
-const { imageDataUrl, manifest, analysis, maskDataUrl } = await response.json();
+const png = await response.arrayBuffer();
+const manifest = JSON.parse(decodeURIComponent(response.headers.get("X-Studio-Manifest")));
 // Store as a review draft. No implicit catalogue publishing.
 ```
 
-`prepare` returns `analysis`, `maskDataUrl`, `cutoutDataUrl` and `recipe`. `render` accepts the same source, its `sourceSha256`, mask and recipe and returns `imageDataUrl` plus `manifest`. `compose` prepares and renders in one request. Use serial calls for multiple source angles; each source needs its own mask. A recipe cannot synthesize a new watch angle.
+`prepare` returns `analysis`, `maskDataUrl`, `cutoutDataUrl` and `recipe`. `photograph` requires the matching source hash and a full-source PNG mask, then returns a generated environment with restored watch pixels. Use `responseFormat:"png"`; the manifest preserves the supplied mask identity for client review checks. `render` accepts the same source, its `sourceSha256`, mask and recipe and returns `imageDataUrl` plus `manifest`. `compose` prepares and renders in one request. Use serial calls for multiple source angles; each source needs its own mask. A recipe cannot synthesize a new watch angle.
 
 For larger lossless outputs, call `render` with `responseFormat: "png"`. The response is raw `image/png`; `X-Studio-Manifest` contains URI-encoded JSON metadata. This is the browser's default render/export path. PNG responses are limited to 4.3 MB. JSON adds base64 overhead, so choose 960 px for one-call JSON composition or use prepare then binary render. Oversized outputs fail explicitly instead of silently compressing watch detail.
 
@@ -67,6 +69,6 @@ Branch `codex/mvw-virtual-studio` is isolated from `codex/mvw-recovery`. Automat
 
 Preview must use `https://aognusoolndwhmcprter.supabase.co`, its service key, preview admin credentials and `CHECKOUT_ENABLED=false`. Do not inherit global production database credentials. `vercel.json` bundles studio plates with the serverless function. The verified preview is https://mvw-studio-preview.vercel.app/#/admin/studio, protected by Vercel authentication and MVW admin sign-in.
 
-Validation: TypeScript and the production build pass. The full 157-test suite passed before the final conservative edge-cleanup addition; targeted segmentation checks cover that addition. Tests cover exclusive OpenAI routing, strict response handling, source-coordinate geometry, protected white dials, holes, invalid outlines, deterministic masking, unchanged original RGB, bounded processing, sloped contact shadows, feathered resizing, authentication and export review gates. The hosted opaque-photo preparation check exercises the actual OpenCV runtime. Live provider output is assessed separately from mocked regression tests.
+Validation for v05 includes source-restoration, alignment, masked API transport, no-retry billing behavior, source/mask identity and authentication checks in addition to the existing regression suite. The local real-photo test exercises the actual Images API; hosted and browser checks are recorded in the release guide. Tests cover exclusive OpenAI routing, strict response handling, source-coordinate geometry, protected white dials, holes, invalid outlines, deterministic masking, unchanged original RGB, bounded processing, sloped contact shadows, feathered resizing, authentication and export review gates. The hosted opaque-photo preparation check exercises the actual OpenCV runtime. Live provider output is assessed separately from mocked regression tests.
 
 References: [OpenCV GrabCut](https://docs.opencv.org/4.13.0/dd/dfc/tutorial_js_grabcut.html), [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs), [ChatGPT and API billing](https://help.openai.com/en/articles/9039756-managing-billing-for-chatgpt-and-the-api-platform), [Sharp compositing](https://sharp.pixelplumbing.com/api-composite/).

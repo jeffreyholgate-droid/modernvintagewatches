@@ -13,6 +13,7 @@ import {
 import StudioMaskEditor from "./StudioMaskEditor";
 import "./virtual-studio.css";
 type Rendered = { imageDataUrl: string; manifest: Record<string, any> };
+type StudioMode = "photograph" | "manual";
 const errors: Record<string, string> = {
   AI_NOT_CONFIGURED:
     "OpenAI API access is not connected yet. Use a transparent PNG, import a mask or use Refine mask.",
@@ -32,6 +33,24 @@ const errors: Record<string, string> = {
     "OpenAI returned an incomplete result. Try again or import a mask.",
   AI_RESPONSE_REFUSED:
     "OpenAI did not process this photograph. Use a manual mask or another source photograph.",
+  SOURCE_TOO_SMALL_FOR_HERO:
+    "The watch is too small in this source for a detailed studio photograph. Choose a closer or higher-resolution view.",
+  PHOTOGRAPH_REQUIRES_OPAQUE_SOURCE:
+    "Use the original photograph with its surroundings for this mode. Transparent cutouts work with manual plates.",
+  PHOTOGRAPH_GEOMETRY_MISMATCH:
+    "The generated scene changed the framing, so it was rejected. No automatic retry was made.",
+  PHOTOGRAPH_PRESERVATION_FAILED:
+    "The watch preservation check failed. This scene cannot be exported.",
+  SCENE_SOURCE_TOO_SMALL:
+    "Choose a higher-resolution photograph with the complete watch clearly visible.",
+  AI_SCENE_INVALID:
+    "The scene could not be verified. No export was accepted. Try another source or use manual plates.",
+  AI_SCENE_NEEDS_REVIEW:
+    "The generated scene did not align reliably with the original watch. Try another source photograph.",
+  AI_SCENE_ALIGNMENT:
+    "The scene did not align with the original watch. Choose a clearer source photograph and try again.",
+  AI_SCENE_OUTPUT_INVALID:
+    "The scene response was incomplete. No automatic retry was made.",
   AI_MASK_NEEDS_REVIEW:
     "The AI could not make a reliable watch mask. Import a mask or use Refine mask.",
   INVALID_SEGMENTATION_GUIDANCE:
@@ -75,6 +94,14 @@ function readFile(f: File): Promise<string> {
     r.readAsDataURL(f);
   });
 }
+function inventoryPhotoSourceURL(url: string) {
+  // Keep the same eBay asset and preserve its query/fragment exactly. Grid
+  // thumbnails remain small; preparation receives the full-size source.
+  return url.replace(
+    /^(https:\/\/i\.ebayimg\.com\/images\/(?:[^/?#]+\/)+)s-l\d+(\.(?:jpg|png|webp))(?=[?#]|$)/,
+    "$1s-l1600$2",
+  );
+}
 export default function VirtualStudio() {
   const [params] = useSearchParams(),
     [items, setItems] = useState<any[]>([]),
@@ -85,6 +112,8 @@ export default function VirtualStudio() {
     [recipe, setRecipe] = useState<StudioRecipe>({ ...defaultRecipe });
   const [rendered, setRendered] = useState<Rendered | null>(null),
     [renderKey, setRenderKey] = useState(""),
+    [mode, setMode] = useState<StudioMode>("photograph"),
+    [photographResult, setPhotographResult] = useState<Rendered | null>(null),
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [reviewed, setReviewed] = useState(false),
@@ -99,7 +128,18 @@ export default function VirtualStudio() {
       : "",
     item = items.find((i) => i.id === itemId),
     photos: string[] = item?.imageUrls || [];
-  const current = !!rendered && renderKey === JSON.stringify(recipe),
+  const activeResult = mode === "photograph" ? photographResult : rendered,
+    current =
+      mode === "photograph"
+        ? !!photographResult &&
+          photographResult.manifest.sourceSha256 ===
+            prepared?.analysis.sourceSha256 &&
+          photographResult.manifest.maskSha256 === prepared?.analysis.maskSha256
+        : !!rendered && renderKey === JSON.stringify(recipe),
+    exportName =
+      mode === "photograph"
+        ? "MVW-Oak-Study-photograph"
+        : "MVW-" + recipe.preset,
     preset = studioPresets.find((p) => p.id === recipe.preset)!;
   useEffect(() => {
     studioRequest("GET")
@@ -119,9 +159,18 @@ export default function VirtualStudio() {
     setSourceName(name);
     setPrepared(null);
     setRendered(null);
+    setPhotographResult(null);
     setReviewed(false);
     setError("");
     setRecipe({ ...defaultRecipe });
+  }
+  function switchMode(next: StudioMode) {
+    if (next === mode) return;
+    setMode(next);
+    setExportReady(null);
+    setReviewed(false);
+    setCompare(false);
+    setError("");
   }
   function change(key: keyof StudioRecipe, value: any) {
     setExportReady(null);
@@ -147,6 +196,7 @@ export default function VirtualStudio() {
     setExportReady(null);
     setEditing(false);
     setReviewed(false);
+    setPhotographResult(null);
     const p = await run<StudioPrepared>("Preparing with OpenAI…", () =>
       studioRequest("POST", { action: "prepare", source, maskDataUrl }),
     );
@@ -154,7 +204,32 @@ export default function VirtualStudio() {
       setPrepared(p);
       setRecipe(p.recipe);
       setRendered(null);
-      await render(p, p.recipe);
+      if (mode === "manual") await render(p, p.recipe);
+    }
+  }
+  async function photograph() {
+    if (!source || !prepared || busy) return;
+    setExportReady(null);
+    setReviewed(false);
+    const result = await run<Rendered>("Photographing in the study…", () =>
+      studioRender({
+        action: "photograph",
+        source,
+        sourceSha256: prepared.analysis.sourceSha256,
+        maskDataUrl: prepared.maskDataUrl,
+      }),
+    );
+    if (result) {
+      if (
+        result.manifest.renderMode !== "source-matched-scene" ||
+        result.manifest.sourceSha256 !== prepared.analysis.sourceSha256 ||
+        result.manifest.maskSha256 !== prepared.analysis.maskSha256
+      ) {
+        setError(errors.AI_SCENE_INVALID);
+        return;
+      }
+      setPhotographResult(result);
+      setCompare(false);
     }
   }
   async function render(p = prepared, r = recipe) {
@@ -177,6 +252,20 @@ export default function VirtualStudio() {
   }
   async function exportImage() {
     if (!current || !reviewed || !prepared || !source) return;
+    if (mode === "photograph") {
+      if (!photographResult) return;
+      // Export the exact reviewed response. Never repeat a paid scene request.
+      setExportReady({
+        imageDataUrl: photographResult.imageDataUrl,
+        manifest: {
+          ...photographResult.manifest,
+          analysis: prepared.analysis,
+          reviewedAt: new Date().toISOString(),
+          maskDataUrl: prepared.maskDataUrl,
+        },
+      });
+      return;
+    }
     const v = await run<Rendered>("Preparing export…", () =>
       studioRender({
         action: "render",
@@ -237,7 +326,7 @@ export default function VirtualStudio() {
             Modern Vintage Watches / Photography
           </span>
           <h1>The Oak Study</h1>
-          <p>A repeatable setting. The actual watch, carefully placed.</p>
+          <p>The oak study, composed around your original watch photograph.</p>
         </div>
         <div className="studio-status">
           ● &nbsp; Private studio · Review before use
@@ -270,11 +359,16 @@ export default function VirtualStudio() {
                 <button
                   key={url + i}
                   disabled={!!busy}
-                  className={sourceUrl === url ? "selected" : ""}
+                  className={
+                    inventoryPhotoSourceURL(sourceUrl) ===
+                    inventoryPhotoSourceURL(url)
+                      ? "selected"
+                      : ""
+                  }
                   aria-label={"Use photograph " + (i + 1)}
                   onClick={() =>
                     choose(
-                      { url },
+                      { url: inventoryPhotoSourceURL(url) },
                       (item.titleBoutique || item.titleRaw) + " · " + (i + 1),
                     )
                   }
@@ -304,7 +398,8 @@ export default function VirtualStudio() {
           </label>
           <p className="studio-small">
             JPEG, PNG or WebP · up to 3 MB. Choose a complete watch at the
-            intended angle.
+            intended angle. Higher-resolution inventory sources are used where
+            available.
           </p>
           <p className="studio-small" role="status">
             {aiConfigured === null
@@ -379,10 +474,34 @@ export default function VirtualStudio() {
           )}
         </aside>
         <section className="studio-stage-panel">
+          <div
+            className="studio-mode-switch"
+            role="group"
+            aria-label="Studio workflow"
+          >
+            <button
+              disabled={!!busy}
+              aria-pressed={mode === "photograph"}
+              onClick={() => switchMode("photograph")}
+            >
+              Studio photograph
+            </button>
+            <button
+              disabled={!!busy}
+              aria-pressed={mode === "manual"}
+              onClick={() => switchMode("manual")}
+            >
+              Manual plates
+            </button>
+          </div>
           <div className="studio-stage-toolbar">
             <div>
               <span className="studio-kicker">02 / Compose</span>
-              <h2>{preset.name}</h2>
+              <h2>
+                {mode === "photograph"
+                  ? "A scene for this photograph"
+                  : preset.name}
+              </h2>
             </div>
             <button
               disabled={!source}
@@ -393,29 +512,49 @@ export default function VirtualStudio() {
             </button>
           </div>
           <div
-            className={"studio-stage " + (compare ? "studio-compare" : "")}
+            className={
+              "studio-stage " +
+              (compare || (mode === "photograph" && !photographResult)
+                ? "studio-compare"
+                : "")
+            }
             style={{
               aspectRatio:
-                recipe.format === "landscape"
-                  ? "5/4"
-                  : recipe.format === "portrait"
-                    ? "4/5"
-                    : "1",
+                mode === "photograph"
+                  ? photographResult
+                    ? `${photographResult.manifest.width}/${photographResult.manifest.height}`
+                    : prepared
+                      ? `${prepared.analysis.width}/${prepared.analysis.height}`
+                      : "4/5"
+                  : recipe.format === "landscape"
+                    ? "5/4"
+                    : recipe.format === "portrait"
+                      ? "4/5"
+                      : "1",
             }}
           >
             {compare && source ? (
               <img src={sourceUrl} alt="Original source for comparison" />
             ) : (
               <img
-                src={rendered?.imageDataUrl || "/studio/" + preset.image}
+                src={
+                  activeResult?.imageDataUrl ||
+                  (mode === "photograph" && sourceUrl
+                    ? sourceUrl
+                    : "/studio/" + preset.image)
+                }
                 alt={
-                  rendered
-                    ? "Rendered watch in oak study"
-                    : "Empty oak study studio plate"
+                  activeResult
+                    ? mode === "photograph"
+                      ? "Generated oak study scene with the original watch photograph"
+                      : "Manual watch composite in oak study"
+                    : mode === "photograph" && source
+                      ? "Original watch photograph awaiting a studio scene"
+                      : "Empty oak study studio plate"
                 }
               />
             )}{" "}
-            {!prepared && !compare && (
+            {!source && !compare && (
               <div className="studio-empty">
                 <span>YOUR WATCH. THIS SETTING.</span>
                 <p>Choose a photograph to begin.</p>
@@ -425,10 +564,10 @@ export default function VirtualStudio() {
               <div className="studio-progress" role="status">
                 <span className="studio-spinner" />
                 {busy}
-                <small>This can take a minute. Keep this tab open.</small>
+                <small>This can take a few minutes. Keep this tab open.</small>
               </div>
             )}
-            {rendered && !current && !busy && !compare && (
+            {mode === "manual" && rendered && !current && !busy && !compare && (
               <div className="studio-stale">
                 Controls changed · Render to update
               </div>
@@ -436,48 +575,71 @@ export default function VirtualStudio() {
           </div>
           <div className="studio-render-bar">
             <span>
-              {rendered
-                ? `${rendered.manifest.width} × ${rendered.manifest.height} px`
-                : "Fixed studio plates · v01"}
-              {current ? " · Preview current" : ""}
+              {activeResult
+                ? `${activeResult.manifest.width} × ${activeResult.manifest.height} px · ${mode === "photograph" ? "Generated scene" : "Manual plate preview"}`
+                : mode === "photograph"
+                  ? "Original pose · studio environment"
+                  : "Manual plate preview"}
+              {current ? " · Ready to review" : ""}
             </span>
             <button
               className="studio-primary"
-              disabled={!prepared || !!busy}
-              onClick={() => render()}
+              disabled={
+                !prepared ||
+                !!busy ||
+                (mode === "photograph" && aiConfigured === false)
+              }
+              onClick={() => (mode === "photograph" ? photograph() : render())}
             >
-              Render preview
+              {mode === "photograph"
+                ? photographResult
+                  ? "Create another scene"
+                  : "Photograph in the study"
+                : "Render manual preview"}
             </button>
           </div>
+          {mode === "photograph" && (
+            <p className="studio-small studio-scene-note">
+              {prepared
+                ? "The scene follows the watch's original pose, framing and lighting. "
+                : "Choose a photograph and prepare its watch mask first. "}
+              One AI scene request. Review before export. Downloading a reviewed
+              result does not make another AI request.
+            </p>
+          )}
           {error && (
             <div className="studio-error" role="alert">
               {error}
             </div>
           )}
-          <div className="studio-presets">
-            {studioPresets.map((p) => (
-              <button
-                key={p.id}
-                disabled={!!busy}
-                className={recipe.preset === p.id ? "selected" : ""}
-                aria-pressed={recipe.preset === p.id}
-                onClick={() => change("preset", p.id)}
-              >
-                <img src={"/studio/" + p.image} alt="" />
-                <strong>{p.name}</strong>
-                <small>
-                  {p.id === "oak-reference"
-                    ? "Preferred reference"
-                    : "3D set / prototype"}
-                </small>
-              </button>
-            ))}
-          </div>
-          <p className="studio-small">
-            Match the camera to the source photograph. One photograph cannot
-            reveal another side of the watch. The six 3D views share one set;
-            their material finish is still a prototype.
-          </p>
+          {mode === "manual" && (
+            <>
+              <div className="studio-presets">
+                {studioPresets.map((p) => (
+                  <button
+                    key={p.id}
+                    disabled={!!busy}
+                    className={recipe.preset === p.id ? "selected" : ""}
+                    aria-pressed={recipe.preset === p.id}
+                    onClick={() => change("preset", p.id)}
+                  >
+                    <img src={"/studio/" + p.image} alt="" />
+                    <strong>{p.name}</strong>
+                    <small>
+                      {p.id === "oak-reference"
+                        ? "Preferred reference"
+                        : "3D set / prototype"}
+                    </small>
+                  </button>
+                ))}
+              </div>
+              <p className="studio-small">
+                Match the camera to the source photograph. One photograph cannot
+                reveal another side of the watch. The six 3D views share one
+                set; their material finish is still a prototype.
+              </p>
+            </>
+          )}
           <div className="studio-export">
             <span className="studio-kicker">03 / Review & export</span>
             <h2>Ready for a closer look.</h2>
@@ -497,14 +659,16 @@ export default function VirtualStudio() {
                 disabled={!reviewed || !current || !!busy}
                 onClick={exportImage}
               >
-                Export PNG + recipe
+                {mode === "photograph"
+                  ? "Prepare reviewed download"
+                  : "Export PNG + recipe"}
               </button>
               {exportReady && current && reviewed && (
                 <span className="studio-downloads" role="status">
                   Export ready:{" "}
                   <a
                     href={exportReady.imageDataUrl}
-                    download={"MVW-" + recipe.preset + ".png"}
+                    download={exportName + ".png"}
                   >
                     Download PNG
                   </a>{" "}
@@ -516,9 +680,16 @@ export default function VirtualStudio() {
                         JSON.stringify(exportReady.manifest, null, 2),
                       )
                     }
-                    download={"MVW-" + recipe.preset + "-recipe.json"}
+                    download={
+                      exportName +
+                      (mode === "photograph"
+                        ? "-metadata.json"
+                        : "-recipe.json")
+                    }
                   >
-                    Download recipe
+                    {mode === "photograph"
+                      ? "Download metadata"
+                      : "Download recipe"}
                   </a>
                 </span>
               )}
@@ -526,7 +697,15 @@ export default function VirtualStudio() {
                 disabled={!prepared || !!busy}
                 onClick={() =>
                   jsonDownload(
-                    { version: 1, source, sourceName, prepared, recipe },
+                    {
+                      version: 1,
+                      source,
+                      sourceName,
+                      prepared,
+                      recipe,
+                      mode,
+                      photographResult,
+                    },
                     "MVW-studio-session.json",
                   )
                 }
@@ -556,6 +735,31 @@ export default function VirtualStudio() {
                       choose(v.source, String(v.sourceName || "Saved session"));
                       setPrepared(v.prepared);
                       setRecipe(r);
+                      const savedScene = v.photographResult;
+                      if (
+                        savedScene &&
+                        typeof savedScene.imageDataUrl === "string" &&
+                        /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(
+                          savedScene.imageDataUrl,
+                        ) &&
+                        savedScene.manifest?.renderMode ===
+                          "source-matched-scene" &&
+                        savedScene.manifest.sourceSha256 ===
+                          v.prepared.analysis.sourceSha256 &&
+                        savedScene.manifest.maskSha256 ===
+                          v.prepared.analysis.maskSha256 &&
+                        Number.isFinite(savedScene.manifest.width) &&
+                        savedScene.manifest.width > 0 &&
+                        Number.isFinite(savedScene.manifest.height) &&
+                        savedScene.manifest.height > 0
+                      ) {
+                        setPhotographResult(savedScene);
+                      }
+                      setMode(
+                        v.mode === "manual" || v.mode === undefined
+                          ? "manual"
+                          : "photograph",
+                      );
                     } catch {
                       setError("Choose a valid MVW studio session JSON file.");
                     }
@@ -573,9 +777,23 @@ export default function VirtualStudio() {
         <aside className="studio-panel studio-controls">
           <div className="studio-section-heading">
             <span>↗</span>
-            <h2>Art direction</h2>
+            <h2>Manual plate controls</h2>
           </div>
-          <fieldset disabled={!!busy}>
+          {mode === "photograph" && (
+            <div className="studio-scene-note">
+              <p className="studio-small">
+                Generated scenes use the source photograph's pose and lighting.
+                These controls apply to manual plate previews.
+              </p>
+              <button disabled={!!busy} onClick={() => switchMode("manual")}>
+                Open manual controls
+              </button>
+            </div>
+          )}
+          <fieldset
+            hidden={mode !== "manual"}
+            disabled={!!busy || mode !== "manual"}
+          >
             <details open>
               <summary>Placement</summary>
               {range("x", "Horizontal position", 0.12, 0.88, 0.01)}
@@ -650,6 +868,7 @@ export default function VirtualStudio() {
             <button
               onClick={() => {
                 setRecipe(prepared?.recipe || { ...defaultRecipe });
+                setExportReady(null);
                 setReviewed(false);
               }}
             >

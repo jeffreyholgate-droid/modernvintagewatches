@@ -552,3 +552,23 @@
 .studio-downloads a {
   text-decoration: underline;
 }
+
+.studio-mode-switch {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.studio-mode-switch button {
+  flex: 1;
+}
+.studio-scene-note {
+  border-left: 2px solid var(--gold);
+  padding-left: 12px;
+  margin-bottom: 20px;
+}
+.studio-controls fieldset:disabled {
+  opacity: 0.48;
+}
+.studio-controls fieldset[hidden] {
+  display: none;
+}
