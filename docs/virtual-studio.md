@@ -1,6 +1,14 @@
 # MVW Oak Study studio — source-matched photography preview v05
 
-Open `/#/admin/studio` and sign in with the existing preview admin credentials. The Photo studio link is in the admin navigation. This branch adds an admin tool and authenticated API; it does not rewrite listing photos or save anything to the catalogue.
+Open `/#/admin/studio` and sign in with the existing preview admin credentials. The Photo studio link is in the admin navigation.
+
+## Imported watch galleries
+
+New imports appear in **Admin → Inventory** with an Oak Study approval count. Open the listing's Oak Study link, select the source photograph and process it in **Studio photograph** mode. Compare against the original at full size and inspect wear, the mask boundary and the contact shadow. Tick the review box, then choose **Approve and save to listing**. Repeat for each original. Unsuitable photographs block publication until the source gallery is corrected. Preparing and photographing remain explicit actions, so imports make no OpenAI requests.
+
+When the complete gallery is approved, choose the cover in **Review listing** and publish separately. Saved drafts are private. The shop retains the original alongside each published Oak Study photograph. A source-gallery change invalidates all saved approvals and takes any affected listing back to draft. Existing published galleries can continue to be shown until replaced.
+
+Apply `db/migrations/20261124_oak_study_gallery.sql` after the earlier gallery migrations. It creates a private Supabase Storage bucket using the existing server-side credentials. An inventory-linked photograph is staged when generated and may be approved within the same session for up to 12 hours. Approval rechecks the source and binds the exact result to that listing and photograph. The app serves only approved public-gallery images to storefront visitors. Standalone exports and saved sessions remain available without changing inventory.
 
 ## Working flow
 

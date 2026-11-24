@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { fetchAllItems, studioRequest, studioRender } from "../lib/api";
+import { Link, useSearchParams } from "react-router-dom";
+import { fetchAllItems, studioRequest, studioRender, studioSavedPhoto } from "../lib/api";
+import type { AppStateItem } from "../lib/store";
+import { oakPhotoPath, oakSourceUrl, watchPhotoUrls } from "../lib/watch-photos";
 import {
   defaultRecipe,
   parseRecipe,
@@ -70,6 +72,9 @@ const errors: Record<string, string> = {
   IMAGE_TOO_LARGE: "Use a source image smaller than 3 MB.",
   EXPORT_TOO_LARGE: "Choose a smaller output size, then render again.",
   SOURCE_CHANGED: "The source has changed. Prepare the photograph again.",
+  LISTING_CHANGED: "Another review or source refresh changed this listing. Reopen it and check the latest photographs.",
+  STUDIO_REVIEW_EXPIRED: "This review has expired. Reopen the source and prepare a fresh result.",
+  STUDIO_STORAGE_UNAVAILABLE: "Oak Study storage is unavailable. Your listing has not changed.",
   IMAGE_HOST_NOT_ALLOWED:
     "This image host is not configured. Download the source and use Upload photograph.",
 };
@@ -86,7 +91,7 @@ function jsonDownload(value: unknown, name: string) {
   download(u, name);
   setTimeout(() => URL.revokeObjectURL(u), 1000);
 }
-function readFile(f: File): Promise<string> {
+function readFile(f: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
     r.onload = () => resolve(String(r.result));
@@ -94,17 +99,9 @@ function readFile(f: File): Promise<string> {
     r.readAsDataURL(f);
   });
 }
-function inventoryPhotoSourceURL(url: string) {
-  // Keep the same eBay asset and preserve its query/fragment exactly. Grid
-  // thumbnails remain small; preparation receives the full-size source.
-  return url.replace(
-    /^(https:\/\/i\.ebayimg\.com\/images\/(?:[^/?#]+\/)+)s-l\d+(\.(?:jpg|png|webp))(?=[?#]|$)/,
-    "$1s-l1600$2",
-  );
-}
 export default function VirtualStudio() {
   const [params] = useSearchParams(),
-    [items, setItems] = useState<any[]>([]),
+    [items, setItems] = useState<AppStateItem[]>([]),
     [itemId, setItemId] = useState(params.get("item") || "");
   const [source, setSource] = useState<StudioSource | null>(null),
     [sourceName, setSourceName] = useState(""),
@@ -114,6 +111,10 @@ export default function VirtualStudio() {
     [renderKey, setRenderKey] = useState(""),
     [mode, setMode] = useState<StudioMode>("photograph"),
     [photographResult, setPhotographResult] = useState<Rendered | null>(null),
+    [listingPhoto, setListingPhoto] = useState<{ itemId: string; url: string } | null>(null),
+    [photoProof, setPhotoProof] = useState<string | undefined>(),
+    [savedPreview, setSavedPreview] = useState(""),
+    [savedNotice, setSavedNotice] = useState(""),
     [busy, setBusy] = useState(""),
     [error, setError] = useState(""),
     [reviewed, setReviewed] = useState(false),
@@ -127,7 +128,9 @@ export default function VirtualStudio() {
         : source.dataUrl
       : "",
     item = items.find((i) => i.id === itemId),
-    photos: string[] = item?.imageUrls || [];
+    photos = watchPhotoUrls(item?.imageUrls),
+    savedOak = item?.oakPhotoReview?.find(photo => photo.url === listingPhoto?.url)?.oak,
+    pendingPhoto = photos.findIndex(url => !item?.oakPhotoReview?.some(photo => photo.url === url));
   const activeResult = mode === "photograph" ? photographResult : rendered,
     current =
       mode === "photograph"
@@ -146,23 +149,37 @@ export default function VirtualStudio() {
       .then((config) => setAIConfigured(config.aiConfigured))
       .catch(() => {});
     fetchAllItems()
-      .then(setItems)
+      .then((inventory: AppStateItem[]) => {
+        setItems(inventory);
+        const selected = inventory.find(entry => entry.id === params.get("item"));
+        const index = Number(params.get("photo")) - 1;
+        const url = watchPhotoUrls(selected?.imageUrls)[index];
+        if (selected && url) chooseInventoryPhoto(selected, url, index);
+      })
       .catch(() =>
         setError(
           "Inventory could not be loaded. You can still upload a photograph.",
         ),
       );
   }, []);
-  function choose(next: StudioSource, name: string) {
+  function choose(next: StudioSource | null, name = "", linked: typeof listingPhoto = null) {
     setExportReady(null);
     setSource(next);
     setSourceName(name);
+    setListingPhoto(linked);
+    setPhotoProof(undefined);
+    setSavedPreview("");
+    setSavedNotice("");
     setPrepared(null);
     setRendered(null);
     setPhotographResult(null);
     setReviewed(false);
     setError("");
     setRecipe({ ...defaultRecipe });
+  }
+  function chooseInventoryPhoto(entry: AppStateItem, url: string, index: number) {
+    choose({ url: oakSourceUrl(url) }, (entry.titleBoutique || entry.titleRaw) + " · " + (index + 1),
+      entry.status === "ACTIVE" ? { itemId: entry.id, url } : null);
   }
   function switchMode(next: StudioMode) {
     if (next === mode) return;
@@ -197,6 +214,7 @@ export default function VirtualStudio() {
     setEditing(false);
     setReviewed(false);
     setPhotographResult(null);
+    setPhotoProof(undefined);
     const p = await run<StudioPrepared>("Preparing with OpenAI…", () =>
       studioRequest("POST", { action: "prepare", source, maskDataUrl }),
     );
@@ -211,12 +229,14 @@ export default function VirtualStudio() {
     if (!source || !prepared || busy) return;
     setExportReady(null);
     setReviewed(false);
-    const result = await run<Rendered>("Photographing in the study…", () =>
+    setSavedNotice("");
+    const result = await run<Rendered & { proof?: string }>("Photographing in the study…", () =>
       studioRender({
         action: "photograph",
         source,
         sourceSha256: prepared.analysis.sourceSha256,
         maskDataUrl: prepared.maskDataUrl,
+        ...(listingPhoto ? { listing: listingPhoto } : {}),
       }),
     );
     if (result) {
@@ -228,8 +248,28 @@ export default function VirtualStudio() {
         setError(errors.AI_SCENE_INVALID);
         return;
       }
-      setPhotographResult(result);
+      setPhotographResult({ imageDataUrl: result.imageDataUrl, manifest: result.manifest });
+      setPhotoProof(result.proof);
       setCompare(false);
+    }
+  }
+  async function saveListingPhoto() {
+    if (!listingPhoto || !photoProof || !reviewed || !current || mode !== "photograph") return;
+    const saved = await run<{ ok: boolean }>("Saving reviewed gallery photo…", () =>
+      studioRequest("POST", { action: "approve-photo", reviewed: true, proof: photoProof }),
+    );
+    if (saved?.ok && photographResult && prepared) {
+      const { itemId, url } = listingPhoto;
+      const photo = { url, tone: "original" as const, oak: {
+        itemId, outputSha256: photographResult.manifest.outputSha256 as string,
+        sourceSha256: prepared.analysis.sourceSha256,
+      } };
+      setItems(previous => previous.map(entry => entry.id === itemId ? {
+        ...entry, oakPhotoReview: [...(entry.oakPhotoReview ?? []).filter(value => value.url !== url), photo],
+      } : entry));
+      setPhotoProof(undefined);
+      setSavedPreview("");
+      setSavedNotice("Photo approved and saved to the listing draft.");
     }
   }
   async function render(p = prepared, r = recipe) {
@@ -343,7 +383,7 @@ export default function VirtualStudio() {
             <select
               value={itemId}
               disabled={!!busy}
-              onChange={(e) => setItemId(e.target.value)}
+              onChange={(e) => { setItemId(e.target.value); choose(null); }}
             >
               <option value="">Select a listing</option>
               {items.map((i) => (
@@ -353,6 +393,9 @@ export default function VirtualStudio() {
               ))}
             </select>
           </label>
+          {item?.status === "ACTIVE" && <p className="studio-small" role="status">
+            {item.oakPhotoReview?.length ?? 0} of {photos.length} Oak Study photos approved · <Link to="/admin/inventory">Back to inventory</Link>
+          </p>}
           {photos.length > 0 && (
             <div className="studio-source-grid">
               {photos.map((url, i) => (
@@ -360,20 +403,15 @@ export default function VirtualStudio() {
                   key={url + i}
                   disabled={!!busy}
                   className={
-                    inventoryPhotoSourceURL(sourceUrl) ===
-                    inventoryPhotoSourceURL(url)
+                    listingPhoto?.url === url || oakSourceUrl(sourceUrl) === oakSourceUrl(url)
                       ? "selected"
                       : ""
                   }
                   aria-label={"Use photograph " + (i + 1)}
-                  onClick={() =>
-                    choose(
-                      { url: inventoryPhotoSourceURL(url) },
-                      (item.titleBoutique || item.titleRaw) + " · " + (i + 1),
-                    )
-                  }
+                  onClick={() => { if (item) chooseInventoryPhoto(item, url, i); }}
                 >
                   <img src={url} alt={"Source photograph " + (i + 1)} />
+                  {item?.oakPhotoReview?.some(photo => photo.url === url) && <span>Approved</span>}
                 </button>
               ))}
             </div>
@@ -416,6 +454,14 @@ export default function VirtualStudio() {
                 alt="Selected original photograph"
               />
               <p className="studio-filename">{sourceName}</p>
+              {savedOak && <div className="studio-toolbar">
+                <button disabled={!!busy} onClick={async () => {
+                  if (savedPreview) return setSavedPreview("");
+                  const preview = await run("Loading saved photo…", async () => readFile(await studioSavedPhoto(oakPhotoPath(savedOak))));
+                  if (preview) setSavedPreview(preview);
+                }}>{savedPreview ? "Hide saved Oak Study photo" : "View saved Oak Study photo"}</button>
+                {savedPreview && <img className="studio-original" src={savedPreview} alt="Approved Oak Study gallery photograph" />}
+              </div>}
               <button
                 className="studio-primary"
                 disabled={!!busy}
@@ -663,6 +709,14 @@ export default function VirtualStudio() {
                   ? "Prepare reviewed download"
                   : "Export PNG + recipe"}
               </button>
+              {listingPhoto && mode === "photograph" && <button
+                disabled={!photoProof || !reviewed || !current || !!busy}
+                onClick={saveListingPhoto}>Approve and save to listing</button>}
+              {savedNotice && <p className="studio-small" role="status">{savedNotice}</p>}
+              {savedNotice && item && pendingPhoto >= 0 && <button disabled={!!busy}
+                onClick={() => chooseInventoryPhoto(item, photos[pendingPhoto], pendingPhoto)}>
+                Open next pending photo
+              </button>}
               {exportReady && current && reviewed && (
                 <span className="studio-downloads" role="status">
                   Export ready:{" "}

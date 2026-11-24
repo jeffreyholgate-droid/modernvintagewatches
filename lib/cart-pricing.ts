@@ -1,4 +1,4 @@
-import { displayWatchPhotos, parsePhotoMask, photoTones, type PhotoMask, type PhotoTone } from './watch-photos.js';
+import { displayWatchPhotos, oakPhotoPath, parsePhotoMask, photoTones, type PhotoMask, type PhotoTone } from './watch-photos.js';
 
 export type PublicPrice = {
   policyVersion: string;
@@ -55,7 +55,7 @@ export function quotedCartLine(item: any): CartLine | null {
   const price = publicPrice(item);
   if (!price || typeof item?.id !== 'string' || item.status !== 'ACTIVE' || item.publishStatus !== 'PUBLISHED') return null;
   const photo = displayWatchPhotos(item.imageUrls, item.photoReview)[0];
-  return { id: item.id, title: item.titleBoutique || item.titleRaw || 'Watch', imageUrl: photo?.url, imageTone: photo?.tone, imageMask: photo?.mask, qty: 1,
+  return { id: item.id, title: item.titleBoutique || item.titleRaw || 'Watch', imageUrl: photo?.oak ? oakPhotoPath(photo.oak) : photo?.url, imageTone: photo?.tone, imageMask: photo?.mask, qty: 1,
     retailPricePence: price.retailPricePence, policyVersion: price.policyVersion, pricingStatus: 'ready' };
 }
 

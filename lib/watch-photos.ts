@@ -2,7 +2,31 @@ export const photoTones = ['original', 'soft-light', 'soft-highlights'] as const
 export type PhotoTone = typeof photoTones[number];
 export type MaskPoint = [number, number];
 export type PhotoMask = { width: number; height: number; outlines: MaskPoint[][] };
-export type WatchPhoto = { url: string; tone: PhotoTone; mask?: PhotoMask };
+export type OakPhoto = { itemId: string; outputSha256: string; sourceSha256: string };
+export type WatchPhoto = { url: string; tone: PhotoTone; mask?: PhotoMask; oak?: OakPhoto };
+
+export const photoHashPattern = /^[a-f0-9]{64}$/;
+export const studioItemPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+
+export function oakSourceUrl(url: string) {
+  return url.replace(
+    /^(https:\/\/i\.ebayimg\.com\/images\/(?:[^/?#]+\/)+)s-l\d+(\.(?:jpg|png|webp))(?=[?#]|$)/,
+    '$1s-l1600$2',
+  );
+}
+
+export function oakPhotoPath(photo: OakPhoto) {
+  return `/api/studio?item=${encodeURIComponent(photo.itemId)}&photo=${photo.outputSha256}`;
+}
+
+export function reviewedOakGallery(urls: string[], reviewed: WatchPhoto[], coverUrl?: string) {
+  const validated = parsePhotoReview(reviewed, urls);
+  if (!validated?.every(photo => photo.oak)) return null;
+  const cover = coverUrl ?? urls[0];
+  if (!urls.includes(cover)) return null;
+  const byUrl = new Map(validated.map(photo => [photo.url, photo]));
+  return [cover, ...urls.filter(url => url !== cover)].map(url => byUrl.get(url)!);
+}
 
 export const MAX_OUTLINES = 8;
 export const MAX_MASK_POINTS = 160;
@@ -78,8 +102,15 @@ export function parsePhotoReview(value: unknown, urls: string[], requireBackgrou
   for (const photo of value) {
     if (!photo || !remaining.delete(photo.url) || !photoTones.includes(photo.tone)) return null;
     const mask = parsePhotoMask(photo.mask);
-    if (!mask && (requireBackground || photo.mask !== undefined)) return null;
-    photos.push({ url: photo.url, tone: photo.tone, ...(mask ? { mask } : {}) });
+    const oak = photo.oak;
+    if (oak !== undefined && (!oak || photo.tone !== 'original' || photo.mask !== undefined ||
+        typeof oak.itemId !== 'string' || !studioItemPattern.test(oak.itemId) ||
+        typeof oak.outputSha256 !== 'string' || !photoHashPattern.test(oak.outputSha256) ||
+        typeof oak.sourceSha256 !== 'string' || !photoHashPattern.test(oak.sourceSha256))) return null;
+    if (!mask && (photo.mask !== undefined || requireBackground && !oak)) return null;
+    photos.push({ url: photo.url, tone: photo.tone, ...(mask ? { mask } : {}), ...(oak ? {
+      oak: { itemId: oak.itemId, outputSha256: oak.outputSha256, sourceSha256: oak.sourceSha256 },
+    } : {}) });
   }
   return photos;
 }

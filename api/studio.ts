@@ -12,6 +12,7 @@ import { prepareWatch } from "./_lib/studio/ai.js";
 import { compositeWatch } from "./_lib/studio/render.js";
 import { photographWatch } from "./_lib/studio/photograph.js";
 import { openAIConfigured, openAITextModel } from "../server/openai-client.js";
+import { approveOakPhoto, checkPhotoStorage, inventoryStudioSource, serveOakPhoto, stageOakPhoto } from "./_lib/studio/gallery.js";
 
 export const config = { maxDuration: 180 };
 const MAX_BODY = 4_000_000;
@@ -105,13 +106,21 @@ const safeErrors = new Set([
   "SOURCE_CHANGED",
   "REVIEW_REQUIRED",
   "REQUEST_TOO_LARGE",
+  "INVALID_STUDIO_LISTING",
+  "STUDIO_REVIEW_EXPIRED",
+  "STUDIO_STORAGE_UNAVAILABLE",
+  "LISTING_CHANGED",
   "INVALID_JSON",
   "EXPORT_TOO_LARGE",
 ]);
 export default async function handler(req: any, res: any) {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  if (!(await authorize(req))) return json(res, 401, { error: "UNAUTHORIZED" });
+  const admin = await authorize(req);
+  if (req.method === 'GET' && req.query?.photo !== undefined) {
+    return serveOakPhoto(req.query.item, req.query.photo, admin, res);
+  }
+  if (!admin) return json(res, 401, { error: "UNAUTHORIZED" });
   if (req.method === "GET")
     return json(res, 200, {
       ok: true,
@@ -139,9 +148,18 @@ export default async function handler(req: any, res: any) {
         "action",
       ) ||
       input.action;
+    if (action === 'approve-photo') {
+      if (input.reviewed !== true) throw new Error('REVIEW_REQUIRED');
+      await approveOakPhoto(input.proof);
+      return json(res, 200, { ok: true });
+    }
     if (!["prepare", "render", "compose", "photograph"].includes(action))
       return json(res, 400, { error: "INVALID_ACTION" });
-    const source = await loadSource(input.source);
+    const linked = action === 'photograph' && input.listing !== undefined
+      ? await inventoryStudioSource(input.listing?.itemId, input.listing?.url)
+      : null;
+    if (linked && input.responseFormat !== 'png') throw new Error('INVALID_FORMAT');
+    const source = await loadSource(linked?.source ?? input.source);
     if (input.sourceSha256 && input.sourceSha256 !== source.sha256)
       throw new Error("SOURCE_CHANGED");
     if (action === "prepare") {
@@ -164,6 +182,7 @@ export default async function handler(req: any, res: any) {
           );
     if (action === "photograph" && !input.sourceSha256)
       throw new Error("SOURCE_CHANGED");
+    if (linked) await checkPhotoStorage();
     const recipe = parseRecipe(input.recipe || prepared?.recipe || {});
     const result =
       action === "photograph"
@@ -179,6 +198,9 @@ export default async function handler(req: any, res: any) {
       ["render", "photograph"].includes(action)
     ) {
       if (result.png.length > 4_300_000) throw new Error("EXPORT_TOO_LARGE");
+      if (linked && 'protectedRgbVerified' in result.manifest && result.manifest.protectedRgbVerified) {
+        res.setHeader('X-Studio-Photo-Proof', await stageOakPhoto(linked.item.id, linked.url, result.png, result.manifest));
+      }
       res.setHeader("Content-Type", "image/png");
       res.setHeader(
         "X-Studio-Manifest",
@@ -212,6 +234,7 @@ export default async function handler(req: any, res: any) {
         "AI_ACCESS_DENIED",
         "AI_MODEL_UNAVAILABLE",
         "AI_SERVICE_UNAVAILABLE",
+        "STUDIO_STORAGE_UNAVAILABLE",
       ].includes(code)
         ? 503
         : code === "AI_RATE_LIMITED"
@@ -220,7 +243,7 @@ export default async function handler(req: any, res: any) {
             ? 504
             : code === "AI_RESPONSE_INVALID"
               ? 502
-              : code === "SOURCE_CHANGED" || code === "REVIEW_REQUIRED"
+              : ['SOURCE_CHANGED', 'REVIEW_REQUIRED', 'LISTING_CHANGED', 'STUDIO_REVIEW_EXPIRED'].includes(code)
                 ? 409
                 : code === "REQUEST_TOO_LARGE" ||
                     code === "IMAGE_TOO_LARGE" ||

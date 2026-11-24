@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import handler from '../api/item/[id].js';
 import { signAdminToken } from '../api/_lib/auth.js';
 
+const testItemId = 'bdae6777-7aff-4187-ab2b-cb4120f4b55f';
+
 function row(overrides: Record<string, unknown> = {}) {
   return {
-    id: 'watch-a', ebay_item_id: 'v1|100|0', url: 'https://www.ebay.co.uk/itm/100',
+    id: testItemId, ebay_item_id: 'v1|100|0', url: 'https://www.ebay.co.uk/itm/100',
     title_raw: 'Source title', title_boutique: 'Reviewed title', description: 'Reviewed description',
     price_gbp: 2500, shipping_gbp: 0, seller_name: 'seller', seller_feedback_percent: 100,
     seller_feedback_score: 500, category: 'WATCH', location_country: 'GB', image_urls: [],
@@ -28,7 +30,7 @@ async function withDatabase(reply: (method: string, payload: any) => Response, r
       return Response.json({ data: { marginPercent: { WATCH: 20, HANDBAG: 20, JEWELLERY: 20 } } });
     }
     assert.equal(url.pathname, '/rest/v1/items');
-    assert.equal(url.searchParams.get('id'), 'eq.watch-a');
+    assert.equal(url.searchParams.get('id'), 'eq.' + testItemId);
     return reply(init?.method || 'GET', init?.body ? JSON.parse(String(init.body)) : undefined);
   };
   try { await run(await signAdminToken({ role: 'admin' })); }
@@ -44,7 +46,7 @@ async function request(method = 'GET', token?: string, body?: unknown) {
   let output = '';
   const headers: Record<string, string> = {};
   const response = { statusCode: 200, setHeader: (name: string, value: string) => { headers[name] = value; }, end: (text: string) => { output = text; } };
-  await handler({ method, query: { id: 'watch-a' }, headers: token ? { authorization: `Bearer ${token}` } : {}, body }, response);
+  await handler({ method, query: { id: testItemId }, headers: token ? { authorization: `Bearer ${token}` } : {}, body }, response);
   return { status: response.statusCode, body: JSON.parse(output), headers };
 }
 
@@ -64,7 +66,7 @@ test('item missing row remains 404 and a published active item remains public', 
   await withDatabase(() => Response.json(row()), async () => {
     const result = await request();
     assert.equal(result.status, 200);
-    assert.equal(result.body.item.id, 'watch-a');
+    assert.equal(result.body.item.id, testItemId);
     assert.equal(result.body.item.pricing.retailPricePence, 319000);
     assert.equal(result.body.item.pricing.deliveryIncluded, true);
     assert.equal('priceGbp' in result.body.item, false);
@@ -79,7 +81,7 @@ test('reserved, sold and unpublished item details remain hidden publicly but vis
       assert.equal((await request('GET', 'invalid-token')).status, 404);
       const admin = await request('GET', token);
       assert.equal(admin.status, 200);
-      assert.equal(admin.body.item.id, 'watch-a');
+      assert.equal(admin.body.item.id, testItemId);
       assert.equal(admin.body.item.priceGbp, 2500);
       assert.equal(admin.body.item.pricing.sourceItemPence, 250000);
     });
@@ -116,20 +118,30 @@ test('PATCH preserves its existing allowed field surface and returns the saved i
 
 test('publishing requires review of every current photo and rejects a stale write', async () => {
   const url = 'https://example.com/front.jpg';
+  const itemId = testItemId;
+  const approved = { url, tone: 'original', oak: { itemId, sourceSha256: 'a'.repeat(64), outputSha256: 'b'.repeat(64) } };
+  let saved: typeof approved[] = [];
   let writes = 0;
-  await withDatabase((method) => {
-    if (method === 'PATCH') { writes++; return Response.json([]); }
-    return Response.json(row({ publish_state: 'DRAFT', image_urls: [url] }));
+  await withDatabase((method, body) => {
+    if (method === 'PATCH') {
+      writes++;
+      assert.deepEqual(body.photo_review, [approved]);
+      return Response.json([]);
+    }
+    return Response.json(row({ id: itemId, publish_state: 'DRAFT', image_urls: [url], oak_photo_review: saved }));
   }, async token => {
     const unreviewed = await request('PATCH', token, { publishStatus: 'PUBLISHED' });
     assert.equal(unreviewed.status, 409);
-    assert.equal(unreviewed.body.error, 'PHOTO_REVIEW_REQUIRED');
+    assert.equal(unreviewed.body.error, 'OAK_STUDIO_REVIEW_REQUIRED');
     assert.equal(writes, 0);
     const toneOnly = await request('PATCH', token, { publishStatus: 'PUBLISHED', photoReview: [{ url, tone: 'soft-light' }] });
     assert.equal(toneOnly.status, 409);
     assert.equal(writes, 0);
-    const mask = { width: 800, height: 600, outlines: [[[20, 20], [800, 20], [400, 900]]] };
-    const stale = await request('PATCH', token, { publishStatus: 'PUBLISHED', photoReview: [{ url, tone: 'soft-light', mask }] });
+    const forged = await request('PATCH', token, { publishStatus: 'PUBLISHED', photoReview: [approved] });
+    assert.equal(forged.status, 409);
+    assert.equal(writes, 0);
+    saved = [approved];
+    const stale = await request('PATCH', token, { publishStatus: 'PUBLISHED', oakCoverUrl: url });
     assert.equal(stale.status, 409);
     assert.equal(stale.body.error, 'LISTING_CHANGED');
     assert.equal(writes, 1);

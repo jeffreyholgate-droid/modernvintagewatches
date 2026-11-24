@@ -27,7 +27,7 @@ export function studioRequest<T = any>(
 // Binary PNG avoids base64 inflating a lossless photograph beyond serverless response limits.
 export async function studioRender(
   body: Record<string, unknown>,
-): Promise<{ imageDataUrl: string; manifest: Record<string, any> }> {
+): Promise<{ imageDataUrl: string; manifest: Record<string, any>; proof?: string }> {
   const token = getToken();
   const res = await fetch(`${API_BASE}/api/studio`, {
     method: "POST",
@@ -52,7 +52,14 @@ export async function studioRender(
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
-  return { imageDataUrl, manifest };
+  return { imageDataUrl, manifest, proof: res.headers.get("X-Studio-Photo-Proof") ?? undefined };
+}
+
+export async function studioSavedPhoto(path: string): Promise<Blob> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("STUDIO_STORAGE_UNAVAILABLE");
+  return res.blob();
 }
 
 function getToken(): string {
@@ -172,6 +179,7 @@ export async function patchItem(
     description: string;
     score: number;
     photoReview: WatchPhoto[];
+    oakCoverUrl: string;
   }>,
 ) {
   const { item } = await request<{ item: any }>(

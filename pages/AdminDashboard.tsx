@@ -48,7 +48,7 @@ const AdminDashboard: React.FC = () => {
       await globalStore.refresh({ admin: true });
       setInventoryState('ready');
       addLog(`Import complete: ${result.discovered} candidates, ${result.upserted} new listings.`);
-      addLog('Next: generate drafts in the Curation Queue, then review and publish each listing.');
+      addLog('New photos are waiting in the Curation Queue. Open Oak Study to process and approve each photograph before publishing.');
     } catch (e: any) {
       setInventoryState('error');
       addLog(`Import failed: ${e?.data?.error || 'check the connection and Audit Logs'}`);

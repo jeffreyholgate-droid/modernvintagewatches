@@ -3,7 +3,7 @@ import { getItemById, updateItem, getSettings, publishReviewedWatch, publicWatch
 import { verifyAdminToken } from '../_lib/auth.js';
 import { Category, PublishState } from '../../types.js';
 import { pricedItem } from '../_lib/pricing.js';
-import { parsePhotoReview, watchPhotoUrls } from '../../lib/watch-photos.js';
+import { parsePhotoReview, reviewedOakGallery, watchPhotoUrls } from '../../lib/watch-photos.js';
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET' && req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
@@ -43,9 +43,16 @@ export default async function handler(req: any, res: any) {
         const current = await getItemById(id);
         if (!current || current.category !== Category.WATCH) return json(res, 404, { error: 'NOT_FOUND' });
         const urls = watchPhotoUrls(current.imageUrls);
-        const photos = parsePhotoReview(patch.photoReview, urls, true);
-        if (!photos || current.imageUrls.some(url => !urls.includes(url))) {
+        if (current.imageUrls.some(url => !urls.includes(url))) {
           return json(res, 409, { error: 'PHOTO_REVIEW_REQUIRED' });
+        }
+        const legacy = current.publishStatus === PublishState.PUBLISHED &&
+          !current.photoReview?.some(photo => photo.oak);
+        const photos = patch.oakCoverUrl !== undefined || !legacy
+          ? reviewedOakGallery(urls, current.oakPhotoReview ?? [], patch.oakCoverUrl)
+          : parsePhotoReview(patch.photoReview, urls, true)?.filter(photo => photo.mask);
+        if (!photos || photos.length !== urls.length) {
+          return json(res, 409, { error: legacy && patch.oakCoverUrl === undefined ? 'PHOTO_REVIEW_REQUIRED' : 'OAK_STUDIO_REVIEW_REQUIRED' });
         }
         if (!await publishReviewedWatch(current, allowed, photos)) {
           return json(res, 409, { error: 'LISTING_CHANGED' });

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { displayWatchPhotos, maskPath, studioPlacement, parsePhotoMask, parsePhotoReview } from '../lib/watch-photos.js';
+import { displayWatchPhotos, maskPath, studioPlacement, parsePhotoMask, parsePhotoReview, reviewedOakGallery, type WatchPhoto } from '../lib/watch-photos.js';
 
 const a = 'https://example.com/front.jpg';
 const b = 'https://example.com/detail.jpg';
@@ -64,5 +64,45 @@ test('database requires a complete gallery for publication and withdraws changed
     await db.query("update public.items set image_urls=$1 where id='new'", [JSON.stringify([a])]);
     const unpublished = await db.query("select publish_state,photo_review from public.items where id='new'");
     assert.deepEqual(unpublished.rows, [{ publish_state: 'DRAFT', photo_review: null }]);
+  } finally { await db.close(); }
+});
+
+test('Oak Study requires a genuine approval for each source and preserves the selected cover', () => {
+  const oak = { itemId: 'bdae6777-7aff-4187-ab2b-cb4120f4b55f', sourceSha256: 'a'.repeat(64), outputSha256: 'b'.repeat(64) };
+  const entries: WatchPhoto[] = [a, b].map(url => ({ url, oak, tone: 'original' }));
+  assert.deepEqual(reviewedOakGallery([a, b], entries, b), [entries[1], entries[0]]);
+  assert.equal(reviewedOakGallery([a, b], [entries[0]]), null);
+  assert.equal(reviewedOakGallery([a, b], entries, 'https://example.com/other.jpg'), null);
+  assert.equal(reviewedOakGallery([a, b], [{ ...entries[0], oak: { ...oak, outputSha256: '../private' } }, entries[1]]), null);
+});
+
+test('the Oak gallery migration preserves legacy covers and blocks unapproved new publications', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`create role anon; create role authenticated; create role service_role;
+      create schema storage;
+      create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+      create table public.items (id text primary key, category text, publish_state text, image_urls jsonb);`);
+    const id = 'bdae6777-7aff-4187-ab2b-cb4120f4b55f';
+    const gallery = JSON.stringify([a, b]);
+    await db.query("insert into items values ('legacy', 'WATCH', 'PUBLISHED', $1), ($2, 'WATCH', 'DRAFT', $1)", [gallery, id]);
+    for (const name of ['watch_photos', 'watch_backdrops', 'oak_study_gallery']) {
+      await db.exec(await readFile(`db/migrations/20261124_${name}.sql`, 'utf8'));
+    }
+    await db.exec("update items set publish_state='PUBLISHED' where id='legacy'");
+    await assert.rejects(db.query("update items set publish_state='PUBLISHED', photo_review=$1 where id=$2",
+      [JSON.stringify(studio), id]), /OAK_STUDIO_REVIEW_REQUIRED/);
+    const oak = { itemId: id, sourceSha256: 'a'.repeat(64), outputSha256: 'b'.repeat(64) };
+    const approved = [a, b].map(url => ({ url, tone: 'original', oak }));
+    await assert.rejects(db.query("update items set publish_state='PUBLISHED', photo_review=$1 where id=$2",
+      [JSON.stringify(approved), id]), /OAK_STUDIO_REVIEW_REQUIRED/);
+    await db.query("update items set oak_photo_review=$1 where id=$2", [JSON.stringify(approved), id]);
+    await db.query("update items set publish_state='PUBLISHED', photo_review=$1 where id=$2",
+      [JSON.stringify(approved), id]);
+    await assert.rejects(db.query("update items set photo_review=$1 where id=$2", [JSON.stringify(studio), id]),
+      /OAK_STUDIO_REVIEW_REQUIRED/);
+    await db.query("update items set image_urls=$1 where id=$2", [JSON.stringify([a]), id]);
+    assert.deepEqual((await db.query("select publish_state,photo_review,oak_photo_review from items where id=$1",
+      [id])).rows, [{ publish_state: 'DRAFT', photo_review: null, oak_photo_review: [] }]);
   } finally { await db.close(); }
 });

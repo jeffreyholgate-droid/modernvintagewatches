@@ -10,6 +10,7 @@ export interface AppStateItem extends EbayItem {
   publishStatus: PublishState;
   score: number;
   photoReview?: WatchPhoto[] | null;
+  oakPhotoReview?: WatchPhoto[];
 }
 
 export interface Settings {
@@ -26,7 +27,8 @@ export interface Settings {
 
 /** Legacy listings retain their existing cover until the full gallery is reviewed. */
 export function publicWatchGallery(item: AppStateItem): AppStateItem {
-  return item.photoReview ? item : { ...item, imageUrls: watchPhotoUrls(item.imageUrls).slice(0, 1) };
+  const { oakPhotoReview, ...publicItem } = item;
+  return item.photoReview ? publicItem : { ...publicItem, imageUrls: watchPhotoUrls(item.imageUrls).slice(0, 1) };
 }
 
 const DEFAULT_SETTINGS: Settings = {
@@ -41,7 +43,7 @@ const DEFAULT_SETTINGS: Settings = {
   blockKeywords: 'replica,fake,copy,aftermarket,custom,diamond set,ice,lab,moissanite'
 };
 
-function getSupabase(): SupabaseClient | null {
+export function getSupabase(): SupabaseClient | null {
   const url = process.env.SUPABASE_URL?.trim();
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
   if (!url || !key) {
@@ -74,7 +76,7 @@ export async function checkDatabase(): Promise<'connected' | 'memory'> {
   // credentials are present. Empty tables are healthy; inaccessible/missing
   // tables or an incompatible schema are not.
   const results = await Promise.all([
-    supabase.from('items').select('id,ebay_item_id,url,title_raw,title_boutique,description,price_gbp,shipping_gbp,seller_name,seller_feedback_percent,seller_feedback_score,category,location_country,image_urls,photo_review,status,last_seen_at,first_seen_at,publish_state,score,updated_at').limit(1),
+    supabase.from('items').select('id,ebay_item_id,url,title_raw,title_boutique,description,price_gbp,shipping_gbp,seller_name,seller_feedback_percent,seller_feedback_score,category,location_country,image_urls,photo_review,oak_photo_review,status,last_seen_at,first_seen_at,publish_state,score,updated_at').limit(1),
     supabase.from('settings').select('id,data,updated_at').limit(1),
     supabase.from('logs').select('id,ts,level,message').limit(1),
   ]);
@@ -198,6 +200,7 @@ export async function upsertItems(newItems: AppStateItem[]): Promise<number> {
           const updated = { ...existing, ...sourceItemPatch(item) };
           if (JSON.stringify(existing.imageUrls) !== JSON.stringify(updated.imageUrls)) {
             updated.photoReview = null;
+            updated.oakPhotoReview = [];
             if (updated.publishStatus === PublishState.PUBLISHED) updated.publishStatus = PublishState.DRAFT;
           }
           mem.items[index] = updated;
@@ -322,7 +325,21 @@ export async function publishReviewedWatch(
   }
   const { data, error } = await supabase.from('items').update(itemToRowPatch(changes))
     .eq('id', item.id).eq('category', Category.WATCH).eq('status', 'ACTIVE')
-    .eq('image_urls', JSON.stringify(item.imageUrls)).select('id');
+    .eq('image_urls', JSON.stringify(item.imageUrls))
+    .eq('oak_photo_review', JSON.stringify(item.oakPhotoReview ?? [])).select('id');
+  if (error) throw error;
+  return data?.length === 1;
+}
+
+export async function saveOakPhoto(item: AppStateItem, photo: WatchPhoto): Promise<boolean> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error('STUDIO_STORAGE_UNAVAILABLE');
+  const existing = item.oakPhotoReview ?? [];
+  const photos = [...existing.filter(entry => entry.url !== photo.url), photo];
+  const { data, error } = await supabase.from('items').update({ oak_photo_review: photos })
+    .eq('id', item.id).eq('category', Category.WATCH).eq('status', 'ACTIVE')
+    .eq('image_urls', JSON.stringify(item.imageUrls))
+    .eq('oak_photo_review', JSON.stringify(existing)).select('id');
   if (error) throw error;
   return data?.length === 1;
 }
@@ -375,6 +392,8 @@ function itemToRowPatch(p: Partial<AppStateItem>) {
 }
 
 function rowToItem(r: any): AppStateItem {
+  const studioPhotos = Array.isArray(r.oak_photo_review) ? r.oak_photo_review : [];
+  const urls = watchPhotoUrls(r.image_urls);
   return {
     id: r.id,
     ebayItemId: r.ebay_item_id,
@@ -390,7 +409,12 @@ function rowToItem(r: any): AppStateItem {
     category: r.category,
     locationCountry: r.location_country,
     imageUrls: Array.isArray(r.image_urls) ? r.image_urls : (r.image_urls || []),
-    photoReview: parsePhotoReview(r.photo_review, watchPhotoUrls(r.image_urls)),
+    photoReview: parsePhotoReview(r.photo_review, urls),
+    oakPhotoReview: studioPhotos.flatMap(photo => {
+      if (!urls.includes(photo?.url)) return [];
+      const entry = parsePhotoReview([photo], [photo.url])?.[0];
+      return entry?.oak?.itemId === r.id ? [entry] : [];
+    }),
     status: r.status,
     lastSeenAt: typeof r.last_seen_at === 'string' ? r.last_seen_at : new Date(r.last_seen_at).toISOString(),
     firstSeenAt: typeof r.first_seen_at === 'string' ? r.first_seen_at : new Date(r.first_seen_at).toISOString(),

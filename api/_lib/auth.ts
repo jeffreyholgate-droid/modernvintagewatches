@@ -27,6 +27,21 @@ export async function verifyAdminToken(token: string) {
   return payload;
 }
 
+export async function signStudioProof(payload: { itemId: string; url: string; sourceSha256: string; outputSha256: string }) {
+  return await new SignJWT(payload).setProtectedHeader({ alg: 'HS256' })
+    .setAudience('mvw-oak-photo-review').setExpirationTime('12h').sign(getSecret());
+}
+
+export async function verifyStudioProof(token: string) {
+  try {
+    return (await jwtVerify(token, getSecret(), {
+      audience: 'mvw-oak-photo-review', algorithms: ['HS256'],
+    })).payload;
+  } catch {
+    throw new Error('STUDIO_REVIEW_EXPIRED');
+  }
+}
+
 export async function requireAdmin(req: any, res: any): Promise<boolean> {
   const header = req.headers?.authorization || req.headers?.Authorization;
   const token = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7) : '';

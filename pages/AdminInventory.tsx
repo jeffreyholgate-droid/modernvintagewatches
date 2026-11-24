@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { globalStore, AppStateItem } from '../lib/store';
 import { PublishState } from '../types';
 import { runCurate, patchItem } from '../lib/api';
 import { formatPence, publicPrice } from '../lib/cart-pricing';
 import type { PricingQuote } from '../api/_lib/pricing';
-import { displayWatchPhotos, type WatchPhoto } from '../lib/watch-photos';
+import { displayWatchPhotos, reviewedOakGallery, watchPhotoUrls, type WatchPhoto } from '../lib/watch-photos';
 import { PhotoReview } from './PhotoReview';
 import { WatchPhoto as PhotoTile } from './WatchPhoto';
 
@@ -16,6 +17,7 @@ const AdminInventory: React.FC = () => {
   const [review, setReview] = useState<{ item: AppStateItem; title: string; description: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [photoApproval, setPhotoApproval] = useState<WatchPhoto[] | null>(null);
+  const [oakCover, setOakCover] = useState('');
   const [view, setView] = useState<'candidates' | 'published' | 'all'>('candidates');
   const visible = items.filter(item => view === 'all' || (view === 'published'
     ? item.publishStatus === PublishState.PUBLISHED
@@ -55,25 +57,34 @@ const AdminInventory: React.FC = () => {
   function openReview(item: AppStateItem) {
     setError(null);
     setPhotoApproval(null);
+    setOakCover(item.photoReview?.[0]?.url || watchPhotoUrls(item.imageUrls)[0] || '');
     setReview({ item, title: item.titleBoutique || item.titleRaw, description: item.description || '' });
   }
 
+  const reviewUrls = watchPhotoUrls(review?.item.imageUrls);
+  const oakGallery = reviewedOakGallery(reviewUrls, review?.item.oakPhotoReview ?? [], oakCover);
+  const oldGallery = review?.item.publishStatus === PublishState.PUBLISHED &&
+    !review.item.photoReview?.some(photo => photo.oak);
+  const canPublish = Boolean(oakGallery || oldGallery && photoApproval);
+
   const saveReview = async (publish: boolean) => {
     if (!review || !review.title.trim() || !review.description.trim()) return;
-    if (publish && (review.item.status !== 'ACTIVE' || !photoApproval)) return;
+    if (publish && (review.item.status !== 'ACTIVE' || !canPublish)) return;
     setSaving(true);
     setError(null);
     try {
       await patchItem(review.item.id, {
         titleBoutique: review.title.trim(), description: review.description.trim(),
         publishStatus: publish ? PublishState.PUBLISHED : PublishState.DRAFT,
-        ...(publish && photoApproval ? { photoReview: photoApproval } : {}),
+        ...(publish ? oakGallery ? { oakCoverUrl: oakCover } : { photoReview: photoApproval ?? undefined } : {}),
       });
       await globalStore.refresh({ admin: true });
       setReview(null);
     } catch (caught) {
       const code = caught instanceof Error ? caught.message : '';
-      setError(['PHOTO_REVIEW_REQUIRED', 'LISTING_CHANGED'].includes(code)
+      setError(code === 'OAK_STUDIO_REVIEW_REQUIRED'
+        ? 'Approve every current source photograph in Oak Study before publishing.'
+        : ['PHOTO_REVIEW_REQUIRED', 'LISTING_CHANGED'].includes(code)
         ? 'The source photos or availability changed. Refresh the inventory and review the current listing.'
         : 'Your changes could not be saved. The review is still open.');
     } finally { setSaving(false); }
@@ -120,6 +131,10 @@ const AdminInventory: React.FC = () => {
                   <div className="text-[11px] font-medium text-stone-400 italic line-clamp-1">"{item.titleRaw}"</div>
                   <div className="text-[9px] text-amber-600 font-bold uppercase tracking-widest mt-1">{item.sellerName}</div>
                   <div className="text-[10px] text-stone-500 mt-1">Source status: {item.status}</div>
+                  {item.status === 'ACTIVE' && <Link to={studioListing(item.id)}
+                    className="text-xs text-amber-800 underline">
+                    Oak Study · {item.oakPhotoReview?.length ?? 0} of {watchPhotoUrls(item.imageUrls).length} approved
+                  </Link>}
                 </td>
                 <td className="px-6 py-4">
                   {item.titleBoutique ? (
@@ -184,8 +199,26 @@ const AdminInventory: React.FC = () => {
             {review.item.status !== 'ACTIVE' && <p className="text-sm text-amber-800">This source listing is not active. You can save a draft, but it cannot be published.</p>}
             <a href={review.item.url} target="_blank" rel="noopener noreferrer" className="text-sm underline">Open source listing</a>
             <div className="border border-stone-200 p-4"><InventoryPricing item={review.item} /></div>
-            <PhotoReview photos={displayWatchPhotos(review.item.imageUrls, review.item.photoReview)}
-              onApproval={setPhotoApproval} disabled={saving} />
+            {review.item.status === 'ACTIVE' && <fieldset className="border border-stone-200 p-4 space-y-2">
+              <legend className="px-1 font-medium">Oak Study gallery</legend>
+              <p className="text-sm text-stone-600">{oakGallery
+                ? 'Every source photograph is approved. Choose the cover before publishing.'
+                : reviewUrls.length
+                  ? 'Open each photo in Oak Study. Check the watch’s wear, mask edges and contact shadows before approving it.'
+                  : 'This listing has no source photographs and cannot be published.'}</p>
+              <div className="flex flex-wrap gap-3">
+                {reviewUrls.map((url, index) => <Link key={url} to={studioListing(review.item.id, index)}
+                  className="text-sm underline">Photo {index + 1}{review.item.oakPhotoReview?.some(photo => photo.url === url) ? ' · approved' : ' · pending'}</Link>)}
+              </div>
+              {oakGallery && <label className="block text-sm">Cover photo
+                <select value={oakCover} onChange={event => setOakCover(event.target.value)}
+                  className="ml-2 border border-stone-300 bg-white p-1">
+                  {reviewUrls.map((url, index) => <option key={url} value={url}>Photo {index + 1}</option>)}
+                </select>
+              </label>}
+            </fieldset>}
+            {oldGallery && !oakGallery && <PhotoReview photos={displayWatchPhotos(review.item.imageUrls, review.item.photoReview)}
+              onApproval={setPhotoApproval} disabled={saving} />}
             <label className="block text-sm">Title
               <input value={review.title} onChange={e => setReview({ ...review, title: e.target.value })} className="block w-full border border-stone-300 p-2 mt-1" />
             </label>
@@ -194,7 +227,7 @@ const AdminInventory: React.FC = () => {
             </label>
             {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
             <div className="flex flex-wrap gap-3">
-              {review.item.status === 'ACTIVE' && <button disabled={saving || !photoApproval || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(true)} className="bg-stone-900 text-white px-4 py-2 rounded disabled:opacity-50">
+              {review.item.status === 'ACTIVE' && <button disabled={saving || !canPublish || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(true)} className="bg-stone-900 text-white px-4 py-2 rounded disabled:opacity-50">
                 {review.item.publishStatus === PublishState.PUBLISHED ? 'Save reviewed listing' : 'Publish reviewed listing'}
               </button>}
               {review.item.publishStatus !== PublishState.PUBLISHED && <button disabled={saving || !review.title.trim() || !review.description.trim()} onClick={() => saveReview(false)} className="border border-stone-300 px-4 py-2 rounded disabled:opacity-50">Save draft</button>}
@@ -206,6 +239,12 @@ const AdminInventory: React.FC = () => {
     </div>
   );
 };
+
+function studioListing(id: string, index?: number) {
+  const params = new URLSearchParams({ item: id });
+  if (index !== undefined) params.set('photo', String(index + 1));
+  return '/admin/studio?' + params;
+}
 
 const InventoryPricing: React.FC<{ item: AppStateItem }> = ({ item }) => {
   const pricing = (item as AppStateItem & { pricing?: PricingQuote | null }).pricing;

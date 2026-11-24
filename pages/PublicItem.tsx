@@ -4,7 +4,7 @@ import { fetchItem } from '../lib/api';
 import { useCart } from '../lib/cart';
 import { checkoutErrorMessage, checkoutNeedsPriceRefresh, requestCheckout } from '../lib/checkout';
 import { formatPence, publicPrice, quotedCartLine } from '../lib/cart-pricing';
-import { displayWatchPhotos } from '../lib/watch-photos';
+import { displayWatchPhotos, oakSourceUrl } from '../lib/watch-photos';
 import { WatchPhoto } from './WatchPhoto';
 
 const PublicItem: React.FC = () => {
@@ -174,8 +174,9 @@ function WatchGallery({ photos, title }: { photos: ReturnType<typeof displayWatc
   const [original, setOriginal] = useState(false);
   const activeIndex = Math.min(index, Math.max(0, photos.length - 1));
   const selected = photos[activeIndex];
+  const originalUrl = selected?.oak ? oakSourceUrl(selected.url) : selected?.url;
   return <>
-    <WatchPhoto photo={selected && original ? { url: selected.url, tone: 'original' } : selected}
+    <WatchPhoto photo={original && originalUrl ? { url: originalUrl, tone: 'original' } : selected}
       alt={photos.length > 1 ? `${title} · photo ${activeIndex + 1}` : title} eager originalView={original} />
     {photos.length > 1 && <div className="mt-3 flex flex-wrap gap-2" aria-label="Watch photos">
       {photos.map((photo, i) => <button key={photo.url} type="button" onClick={() => setIndex(i)}
@@ -185,12 +186,12 @@ function WatchGallery({ photos, title }: { photos: ReturnType<typeof displayWatc
       </button>)}
     </div>}
     <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
-      <p>Photos supplied by the source seller.</p>
-      {selected && (selected.mask || selected.tone !== 'original') &&
+      <p>{selected?.oak ? 'Oak Study setting with the original watch photograph.' : 'Photos supplied by the source seller.'}</p>
+      {selected && (selected.oak || selected.mask || selected.tone !== 'original') &&
         <button type="button" onClick={() => setOriginal(value => !value)} className="underline">
           {original ? 'Show studio version' : 'Show original photo'}
         </button>}
-      {selected && <a href={selected.url} target="_blank" rel="noopener noreferrer" className="underline">Open original photo</a>}
+      {originalUrl && <a href={originalUrl} target="_blank" rel="noopener noreferrer" className="underline">Open original photo</a>}
     </div>
   </>;
 }
