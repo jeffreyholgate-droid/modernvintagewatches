@@ -67,7 +67,11 @@ async function request(
     const code = data?.error?.code;
     if (
       res.status === 402 ||
-      ["insufficient_quota", "billing_hard_limit_reached"].includes(code)
+      [
+        "insufficient_quota",
+        "billing_hard_limit_reached",
+        "credit_balance_exhausted",
+      ].includes(code)
     )
       throw new Error("AI_CREDITS_DEPLETED");
     if (res.status === 401 || res.status === 403)

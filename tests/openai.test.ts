@@ -144,6 +144,7 @@ test("provider failures are sanitised and never retried automatically", async (t
   env(t, { OPENAI_API_KEY: "test-key" });
   for (const [status, code, expected] of [
     [429, "insufficient_quota", "AI_CREDITS_DEPLETED"],
+    [429, "credit_balance_exhausted", "AI_CREDITS_DEPLETED"],
     [429, "rate_limit_exceeded", "AI_RATE_LIMITED"],
     [401, "invalid_api_key", "AI_ACCESS_DENIED"],
     [404, "model_not_found", "AI_MODEL_UNAVAILABLE"],
