@@ -17,6 +17,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.49.1
         version: 2.95.1
+      '@techstark/opencv-js':
+        specifier: 5.0.0-release.1
+        version: 5.0.0-release.1
       jose:
         specifier: ^5.10.0
         version: 5.10.0
@@ -662,6 +665,9 @@ packages:
   '@supabase/supabase-js@2.95.1':
     resolution: {integrity: sha512-ow3ZqJfb3JkLF8MDxVOl3FAy39pGF1uWgr5nitcwEMwjJTt7yk/s8sQPcGrTL29xOqQB+v5hQDWYr7906k4a3A==}
     engines: {node: '>=20.0.0'}
+
+  '@techstark/opencv-js@5.0.0-release.1':
+    resolution: {integrity: sha512-PIm+eB0MFtieXoNC2GRao0dv/02sehG+Nv2nSW5D6pQm6J/4WqvDHm0RyoqOmGYQm67jdGiaOdIeTShCY3PIUg==}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -1826,6 +1832,8 @@ snapshots:
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
+
+  '@techstark/opencv-js@5.0.0-release.1': {}
 
   '@types/babel__core@7.20.5':
     dependencies:

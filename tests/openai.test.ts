@@ -1,17 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
-import {
-  structuredOpenAI,
-  isolateWithOpenAI,
-  openAIConfigured,
-} from "../server/openai-client.js";
+import { structuredOpenAI, openAIConfigured } from "../server/openai-client.js";
 import { OpenAIService } from "../server/openai.js";
-import {
-  isolationCanvas,
-  maskFromOpenAI,
-  prepareWatch,
-} from "../api/_lib/studio/ai.js";
+import { analysisImage, prepareWatch } from "../api/_lib/studio/ai.js";
 import {
   loadSource,
   pngUrl,
@@ -69,33 +61,6 @@ async function fixture(width = 240, height = 180) {
         .toBuffer(),
     ),
   });
-}
-async function candidate(
-  canvas: Awaited<ReturnType<typeof isolationCanvas>>,
-  delta = 0,
-) {
-  const { data, info } = await sharp(canvas.image)
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  for (let y = 0; y < info.height; y++)
-    for (let x = 0; x < info.width; x++) {
-      const i = (y * info.width + x) * 4;
-      data[i + 3] =
-        x > info.width * 0.25 &&
-        x < info.width * 0.75 &&
-        y > info.height * 0.25 &&
-        y < info.height * 0.75
-          ? 255
-          : 0;
-      for (let c = 0; c < 3; c++)
-        data[i + c] = Math.min(255, data[i + c] + delta);
-    }
-  return sharp(data, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  })
-    .png()
-    .toBuffer();
 }
 test("OpenAI requires its own key and never falls back to a legacy provider", async (t) => {
   env(t, {
@@ -195,66 +160,46 @@ test("incomplete, refused and oversized responses cannot become successful resul
     mock.mock.restore();
   }
 });
-test("OpenAI image editing requests one transparent PNG and validates its response", async (t) => {
-  env(t, {
-    OPENAI_API_KEY: "test-key",
-    OPENAI_IMAGE_MODEL: "gpt-image-2.6-sunburst",
-  });
-  const png = (await fixture()).normalized;
-  t.mock.method(globalThis, "fetch", async (url: any, init: any) => {
-    assert.equal(url, "https://api.openai.com/v1/images/edits");
-    assert.equal(init.redirect, "error");
-    const form = init.body as FormData;
-    assert.equal(form.get("background"), "transparent");
-    assert.equal(form.get("output_format"), "png");
-    assert.equal(form.get("size"), "1024x1024");
-    assert.equal(form.get("n"), "1");
-    assert.equal(form.get("complexity"), "low");
-    assert.ok(form.get("image") instanceof Blob);
-    assert.equal(init.headers["Content-Type"], undefined);
-    return jsonResponse({ data: [{ b64_json: png.toString("base64") }] });
-  });
-  assert.deepEqual(await isolateWithOpenAI(png, 1024, 1024), png);
-});
-test("image canvases preserve source aspect with API-compliant padding at extreme ratios", async () => {
+test("vision input preserves source coordinates without padding or enlargement", async () => {
   for (const [width, height] of [
     [301, 100],
-    [300, 100],
     [100, 300],
-    [107, 319],
     [180, 240],
     [4000, 2000],
   ]) {
-    const source = await fixture(width, height);
-    if (width / height > 3) {
-      await assert.rejects(isolationCanvas(source), /AI_MASK_NEEDS_REVIEW/);
-      continue;
-    }
-    const c = await isolationCanvas(source);
-    assert.equal(c.canvasWidth % 16, 0);
-    assert.equal(c.canvasHeight % 16, 0);
-    assert.ok(
-      c.canvasWidth / c.canvasHeight <= 3 &&
-        c.canvasHeight / c.canvasWidth <= 3,
-    );
-    assert.ok(
-      c.canvasWidth * c.canvasHeight >= 655360 &&
-        c.canvasWidth * c.canvasHeight <= 8294400,
-    );
-    assert.ok(Math.abs(c.width / c.height - width / height) < 0.01);
+    const input = await analysisImage(await fixture(width, height));
+    const meta = await sharp(input).metadata();
+    assert.ok(Math.abs(meta.width! / meta.height! - width / height) < 0.01);
+    assert.ok(meta.width! <= Math.min(width, 1536));
+    assert.ok(meta.height! <= Math.min(height, 1536));
   }
 });
-test("AI preparation discards generated RGB and uses the original photograph under the candidate alpha", async (t) => {
+test("AI preparation requests geometry once and masks only original source RGB", async (t) => {
   env(t, {
     OPENAI_API_KEY: "test-key",
     OPENAI_TEXT_MODEL: "test-text",
     OPENAI_STUDIO_ANALYSIS_MODEL: undefined,
-    OPENAI_IMAGE_MODEL: "gpt-image-2.6-sunburst",
   });
-  const source = await fixture(),
-    canvas = await isolationCanvas(source),
-    edited = await candidate(canvas, 20),
-    calls: string[] = [];
+  const width = 240,
+    height = 180,
+    pixels = Buffer.alloc(width * height * 3, 255);
+  // Include white dial detail inside a dark case. It must remain opaque.
+  for (let y = 40; y < 140; y++)
+    for (let x = 70; x < 170; x++) {
+      const i = (y * width + x) * 3;
+      pixels[i] = 80;
+      pixels[i + 1] = 120;
+      pixels[i + 2] = 160;
+      if (x > 100 && x < 140 && y > 70 && y < 110) pixels.fill(255, i, i + 3);
+    }
+  const source = await loadSource({
+    dataUrl: pngUrl(
+      await sharp(pixels, { raw: { width, height, channels: 3 } })
+        .png()
+        .toBuffer(),
+    ),
+  });
+  const calls: string[] = [];
   const assessment = {
     view: "three-quarter",
     confidence: 0.8,
@@ -265,53 +210,63 @@ test("AI preparation discards generated RGB and uses the original photograph und
     multipleWatches: false,
     issues: [],
     rationale: "Compatible source.",
+    segmentation: {
+      outline: [
+        { x: 0.29, y: 0.22 },
+        { x: 0.71, y: 0.22 },
+        { x: 0.71, y: 0.78 },
+        { x: 0.29, y: 0.78 },
+      ],
+      holes: [],
+      foregroundPoints: [
+        { x: 0.35, y: 0.4 },
+        { x: 0.5, y: 0.5 },
+        { x: 0.6, y: 0.6 },
+      ],
+      backgroundPoints: [
+        { x: 0.1, y: 0.1 },
+        { x: 0.9, y: 0.1 },
+        { x: 0.9, y: 0.9 },
+      ],
+    },
   };
-  t.mock.method(globalThis, "fetch", async (url: any) => {
+  t.mock.method(globalThis, "fetch", async (url: any, init: any) => {
     calls.push(String(url));
-    return String(url).endsWith("/responses")
-      ? jsonResponse(completed(assessment))
-      : jsonResponse({ data: [{ b64_json: edited.toString("base64") }] });
+    assert.equal(url, "https://api.openai.com/v1/responses");
+    const body = JSON.parse(init.body);
+    assert.ok(body.max_output_tokens >= 5000);
+    return jsonResponse(completed(assessment));
   });
   const result = await prepareWatch(source);
-  assert.equal(calls.length, 2);
-  assert.ok(calls.every((url) => url.startsWith("https://api.openai.com/v1/")));
+  assert.equal(calls.length, 1);
   assert.equal(result.analysis.provider, "openai");
-  assert.equal(result.analysis.maskMethod, "image-edit-alpha");
+  assert.equal(result.analysis.maskMethod, "source-coordinate-grabcut");
   assert.equal(result.analysis.reviewRequired, true);
-  const { data, info } = await sharp(decodeImageData(result.cutoutDataUrl))
+  const mask = await sharp(decodeImageData(result.maskDataUrl))
+    .greyscale()
     .raw()
-    .toBuffer({ resolveWithObject: true });
-  const middle =
-    (Math.floor(info.height / 2) * info.width + Math.floor(info.width / 2)) * 4;
-  assert.deepEqual([...data.subarray(middle, middle + 4)], [80, 120, 160, 255]);
-});
-test("AI mask guard rejects altered, opaque or differently sized image results", async () => {
-  const source = await fixture(),
-    canvas = await isolationCanvas(source);
-  await assert.rejects(
-    maskFromOpenAI(source, canvas, await candidate(canvas, 100)),
-    /AI_MASK_NEEDS_REVIEW/,
+    .toBuffer();
+  assert.equal(
+    mask[90 * width + 120],
+    255,
+    "white dial must not become a hole",
   );
-  await assert.rejects(
-    maskFromOpenAI(source, canvas, canvas.image),
-    /AI_MASK_INVALID/,
+  assert.equal(mask[0], 0, "external white background must be removed");
+  const { cutoutFromMask } = await import("../api/_lib/studio/images.js");
+  const cutout = await cutoutFromMask(
+    source,
+    decodeImageData(result.maskDataUrl),
   );
-  await assert.rejects(
-    maskFromOpenAI(
-      source,
-      canvas,
-      await sharp(canvas.image).ensureAlpha().png().toBuffer(),
-    ),
-    /MASK_NEEDS_REVIEW/,
-  );
-  await assert.rejects(
-    maskFromOpenAI(
-      source,
-      canvas,
-      await sharp(canvas.image).resize(512, 512).ensureAlpha().png().toBuffer(),
-    ),
-    /AI_MASK_INVALID/,
-  );
+  const rgba = await sharp(cutout.buffer).raw().toBuffer();
+  for (let y = 0; y < cutout.box.height; y++)
+    for (let x = 0; x < cutout.box.width; x++) {
+      const i = (y * cutout.box.width + x) * 4,
+        j = ((y + cutout.box.top) * width + x + cutout.box.left) * 3;
+      assert.deepEqual(
+        [...rgba.subarray(i, i + 3)],
+        [...pixels.subarray(j, j + 3)],
+      );
+    }
 });
 test("listing normalization cannot promote an AI authenticity guarantee", async (t) => {
   env(t, { OPENAI_API_KEY: "test-key" });

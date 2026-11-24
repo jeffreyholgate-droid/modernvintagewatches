@@ -10,11 +10,7 @@ import {
 } from "./_lib/studio/images.js";
 import { prepareWatch } from "./_lib/studio/ai.js";
 import { compositeWatch } from "./_lib/studio/render.js";
-import {
-  openAIConfigured,
-  openAITextModel,
-  openAIImageModel,
-} from "../server/openai-client.js";
+import { openAIConfigured, openAITextModel } from "../server/openai-client.js";
 
 export const config = { maxDuration: 180 };
 const MAX_BODY = 4_000_000;
@@ -73,6 +69,8 @@ const safeErrors = new Set([
   "IMAGE_HOST_NOT_ALLOWED",
   "SOURCE_UNAVAILABLE",
   "INVALID_MASK",
+  "INVALID_SEGMENTATION_GUIDANCE",
+  "SEGMENTATION_FAILED",
   "MASK_NEEDS_REVIEW",
   "EMPTY_MASK",
   "AI_NOT_CONFIGURED",
@@ -110,7 +108,7 @@ export default async function handler(req: any, res: any) {
       aiConfigured: openAIConfigured(),
       aiProvider: "openai",
       textModel: process.env.OPENAI_STUDIO_ANALYSIS_MODEL || openAITextModel(),
-      imageModel: openAIImageModel(),
+      isolationMode: "source-coordinate-grabcut",
       productPixelsProtected: true,
       renderMode: "fixed-studio-plate",
       maxUploadBytes: 3 * 1024 * 1024,

@@ -71,6 +71,7 @@ export type StudioRecipe = {
   shadowAngle: number;
   shadowFlatten: number;
   contactY: number;
+  contactAngle: number;
   contactStrength: number;
   edgeFeather: number;
 };
@@ -92,7 +93,8 @@ export type StudioAnalysis = {
   provider?: "openai";
   analysisModel?: string;
   maskModel?: string;
-  maskMethod?: "image-edit-alpha";
+  maskMethod?: "image-edit-alpha" | "source-coordinate-grabcut";
+  segmentation?: Record<string, unknown>;
   alignmentError?: number;
   reviewRequired: true;
 };
@@ -121,9 +123,10 @@ export const defaultRecipe: StudioRecipe = {
   shadowLength: 26,
   shadowAngle: 45,
   shadowFlatten: 0.18,
-  contactY: 0.92,
+  contactY: 1,
+  contactAngle: 0,
   contactStrength: 0.3,
-  edgeFeather: 0.35,
+  edgeFeather: 0,
 };
 export function parseRecipe(value: unknown): StudioRecipe {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -163,6 +166,7 @@ export function parseRecipe(value: unknown): StudioRecipe {
     shadowAngle: [0, 360],
     shadowFlatten: [0.02, 0.65],
     contactY: [0.25, 1],
+    contactAngle: [-45, 45],
     contactStrength: [0, 0.65],
     edgeFeather: [0, 1.5],
   };

@@ -45,15 +45,22 @@ export async function compositeWatch(
       .png()
       .toBuffer();
     const rgb = await sharp(cutout.buffer).removeAlpha().png().toBuffer();
-    watch = sharp(rgb).joinChannel(
-      await sharp(m).removeAlpha().greyscale().raw().toBuffer(),
-      {
-        raw: {
-          width: cutout.box.width,
-          height: cutout.box.height,
-          channels: 1,
-        },
-      },
+    // Materialize before resizing: Sharp applies resize before joinChannel in
+    // a single pipeline, but the alpha here still has the source crop's size.
+    watch = sharp(
+      await sharp(rgb)
+        .joinChannel(
+          await sharp(m).removeAlpha().greyscale().raw().toBuffer(),
+          {
+            raw: {
+              width: cutout.box.width,
+              height: cutout.box.height,
+              channels: 1,
+            },
+          },
+        )
+        .png()
+        .toBuffer(),
     );
   }
   const maxSide = Math.round(Math.min(width, height) * r.scale);
@@ -78,12 +85,15 @@ export async function compositeWatch(
   const shadowAlpha = Buffer.alloc(width * height),
     contactAlpha = Buffer.alloc(width * height);
   const rad = (r.shadowAngle * Math.PI) / 180,
-    anchor = h * r.contactY,
+    contactSlope = Math.tan(((r.contactAngle ?? 0) * Math.PI) / 180),
     length = r.shadowLength * (width / 1200);
   for (let y = 0; y < h; y++)
     for (let x = 0; x < w; x++) {
       const a = layer.data[(y * w + x) * 4 + 3];
       if (!a) continue;
+      // A sloped support line can follow a case/strap resting obliquely on the desk.
+      // Only the shadow projection changes; source geometry and RGB stay untouched.
+      const anchor = h * r.contactY + (x - w / 2) * contactSlope;
       const elevation = Math.max(0, anchor - y) / Math.max(1, h);
       const sx = Math.round(left + x + elevation * length * Math.cos(rad));
       const sy = Math.round(

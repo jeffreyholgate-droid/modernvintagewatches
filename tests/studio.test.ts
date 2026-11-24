@@ -88,9 +88,12 @@ test("recipe rejects nonfinite values and invalid plates or versions", () => {
     { preset: "../../secret" },
     { version: 2 },
     { shadowOpacity: -1 },
+    { contactAngle: 46 },
+    { contactAngle: -46 },
   ])
     assert.throws(() => parseRecipe(v));
   assert.deepEqual(parseRecipe({}), defaultRecipe);
+  assert.equal(parseRecipe({ version: 1, contactY: 0.92 }).contactAngle, 0);
 });
 test("masking retains every original RGB sample in the watch bounding box", async () => {
   const { source, mask } = await fixture(),
@@ -190,6 +193,80 @@ test("shadow affects background outside product silhouette", async () => {
     });
   assert.notEqual(a.manifest.outputSha256, b.manifest.outputSha256);
 });
+test("sloped contact follows an oblique support edge without changing product RGB", async () => {
+  const { source } = await fixture(),
+    slope = 0.35;
+  const values = Buffer.alloc(width * height);
+  for (let x = 50; x < 190; x++)
+    for (let y = 40; y < Math.round(85 + (x - 50) * slope); y++)
+      values[y * width + x] = 255;
+  const mask = await sharp(values, { raw: { width, height, channels: 1 } })
+    .png()
+    .toBuffer();
+  const cut = await cutoutFromMask(source, mask);
+  const recipe = {
+    ...defaultRecipe,
+    size: 960 as const,
+    shadowOpacity: 0,
+    contactStrength: 0,
+    contactY: (45 + (cut.box.width / 2) * slope) / cut.box.height,
+  };
+  const plain = await compositeWatch(source, mask, recipe);
+  const horizontal = await compositeWatch(source, mask, {
+    ...recipe,
+    contactStrength: 0.65,
+  });
+  const angled = await compositeWatch(source, mask, {
+    ...recipe,
+    contactStrength: 0.65,
+    contactAngle: (Math.atan(slope) * 180) / Math.PI,
+  });
+  const [a, b, c] = await Promise.all(
+    [plain, horizontal, angled].map(async (r) =>
+      sharp(r.png).removeAlpha().raw().toBuffer(),
+    ),
+  );
+  const { left, top, width: w } = angled.manifest.watchBox;
+  for (const x of [20, 120]) {
+    const y = Math.round(45 + x * slope) + 1;
+    const i = ((top + y) * 960 + left + x) * 3;
+    const contactDarkening = a[i] - c[i];
+    assert.ok(
+      contactDarkening > 3,
+      "shadow must touch both ends of the sloping support edge",
+    );
+    assert.ok(
+      contactDarkening > a[i] - b[i],
+      "sloped contact must reach where a horizontal strip cannot",
+    );
+  }
+  const original = await sharp(source.normalized)
+    .removeAlpha()
+    .raw()
+    .toBuffer();
+  for (let y = 0; y < cut.box.height; y++)
+    for (let x = 0; x < w; x++) {
+      if (values[(cut.box.top + y) * width + cut.box.left + x] !== 255)
+        continue;
+      const out = ((top + y) * 960 + left + x) * 3,
+        src = ((cut.box.top + y) * width + cut.box.left + x) * 3;
+      assert.deepEqual(
+        c.subarray(out, out + 3),
+        original.subarray(src, src + 3),
+      );
+    }
+});
+test("positive edge feather keeps alpha and RGB together when reducing the watch", async () => {
+  const { source, mask } = await fixture();
+  const result = await compositeWatch(source, mask, {
+    ...defaultRecipe,
+    size: 960,
+    scale: 0.12,
+    edgeFeather: 0.35,
+  });
+  assert.equal(result.manifest.watchBox.width, 115);
+  assert.equal(result.manifest.watchBox.height, 82);
+});
 test("render rejects watch extending beyond frame", async () => {
   const { source, mask } = await fixture();
   await assert.rejects(
@@ -236,12 +313,46 @@ test("binary render delivers a lossless PNG and matching manifest", async () => 
   process.env.MVW_STUDIO_SERVICE_KEY = "test-service-key-32-characters-minimum";
   try {
     const { source, png, mask } = await fixture();
-    const headers:Record<string,string>={};let result:Buffer=Buffer.alloc(0);
-    const res={statusCode:0,setHeader(k:string,v:string){headers[k]=v;},end(v:Buffer){result=v;}};
-    await handler({method:'POST',headers:{authorization:'Bearer '+process.env.MVW_STUDIO_SERVICE_KEY},body:{action:'render',source:{dataUrl:pngUrl(png)},sourceSha256:source.sha256,maskDataUrl:pngUrl(mask),recipe:{size:1200},responseFormat:'png',export:true,reviewed:true}},res);
-    assert.equal(res.statusCode,200);assert.equal(headers['Content-Type'],'image/png');
-    const manifest=JSON.parse(decodeURIComponent(headers['X-Studio-Manifest']));
-    assert.equal(manifest.sourceSha256,source.sha256);assert.equal(manifest.width,1200);
-    assert.equal((await sharp(result).metadata()).format,'png');
-  } finally { if(old===undefined)delete process.env.MVW_STUDIO_SERVICE_KEY;else process.env.MVW_STUDIO_SERVICE_KEY=old; }
+    const headers: Record<string, string> = {};
+    let result: Buffer = Buffer.alloc(0);
+    const res = {
+      statusCode: 0,
+      setHeader(k: string, v: string) {
+        headers[k] = v;
+      },
+      end(v: Buffer) {
+        result = v;
+      },
+    };
+    await handler(
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer " + process.env.MVW_STUDIO_SERVICE_KEY,
+        },
+        body: {
+          action: "render",
+          source: { dataUrl: pngUrl(png) },
+          sourceSha256: source.sha256,
+          maskDataUrl: pngUrl(mask),
+          recipe: { size: 1200 },
+          responseFormat: "png",
+          export: true,
+          reviewed: true,
+        },
+      },
+      res,
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(headers["Content-Type"], "image/png");
+    const manifest = JSON.parse(
+      decodeURIComponent(headers["X-Studio-Manifest"]),
+    );
+    assert.equal(manifest.sourceSha256, source.sha256);
+    assert.equal(manifest.width, 1200);
+    assert.equal((await sharp(result).metadata()).format, "png");
+  } finally {
+    if (old === undefined) delete process.env.MVW_STUDIO_SERVICE_KEY;
+    else process.env.MVW_STUDIO_SERVICE_KEY = old;
+  }
 });

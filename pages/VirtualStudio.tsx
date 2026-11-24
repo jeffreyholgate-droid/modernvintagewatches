@@ -19,7 +19,7 @@ const errors: Record<string, string> = {
   AI_CREDITS_DEPLETED:
     "The OpenAI API project has no available quota or credits. Check its API billing, or import a mask to continue.",
   AI_ACCESS_DENIED:
-    "OpenAI rejected API access. Check the server key and the project's image-model access.",
+    "OpenAI rejected API access. Check the server key and the project's model access.",
   AI_MODEL_UNAVAILABLE:
     "The configured OpenAI model is unavailable to this API project.",
   AI_RATE_LIMITED:
@@ -34,6 +34,10 @@ const errors: Record<string, string> = {
     "OpenAI did not process this photograph. Use a manual mask or another source photograph.",
   AI_MASK_NEEDS_REVIEW:
     "The AI could not make a reliable watch mask. Import a mask or use Refine mask.",
+  INVALID_SEGMENTATION_GUIDANCE:
+    "The watch outline was unclear. Use Refine mask or try another source photograph.",
+  SEGMENTATION_FAILED:
+    "Edge isolation could not complete. Use Refine mask or try another source photograph.",
   AI_MASK_INVALID:
     "The AI mask was invalid. Please use a transparent PNG or refine the mask.",
   AI_ANALYSIS_INVALID:
@@ -614,6 +618,7 @@ export default function VirtualStudio() {
               {range("shadowSoftness", "Shadow softness", 1, 30, 1)}
               {range("shadowFlatten", "Shadow perspective", 0.02, 0.65, 0.01)}
               {range("contactY", "Contact height", 0.25, 1, 0.01)}
+              {range("contactAngle", "Contact angle", -45, 45, 1, "°")}
               {range("contactStrength", "Contact strength", 0, 0.65, 0.01)}
               {range("edgeFeather", "Edge feather", 0, 1.5, 0.05, " px")}
             </details>
