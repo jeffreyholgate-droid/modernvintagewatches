@@ -131,3 +131,15 @@ test('publishing requires review of every current photo and rejects a stale writ
     assert.equal(writes, 1);
   });
 });
+
+test('unreviewed detail photos stay private until the gallery passes review', async () => {
+  const images = ['https://example.com/front.jpg', 'https://example.com/details.jpg'];
+  await withDatabase(() => Response.json(row({ image_urls: images })), async token => {
+    assert.deepEqual((await request()).body.item.imageUrls, [images[0]]);
+    assert.deepEqual((await request('GET', token)).body.item.imageUrls, images);
+  });
+  const gallery = [{ url: images[1], tone: 'soft-light' }, { url: images[0], tone: 'original' }];
+  await withDatabase(() => Response.json(row({ image_urls: images, photo_review: gallery })), async () => {
+    assert.deepEqual((await request()).body.item.photoReview, gallery);
+  });
+});

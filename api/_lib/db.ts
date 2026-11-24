@@ -24,6 +24,11 @@ export interface Settings {
   blockKeywords: string;
 }
 
+/** Legacy listings retain their existing cover until the full gallery is reviewed. */
+export function publicWatchGallery(item: AppStateItem): AppStateItem {
+  return item.photoReview ? item : { ...item, imageUrls: watchPhotoUrls(item.imageUrls).slice(0, 1) };
+}
+
 const DEFAULT_SETTINGS: Settings = {
   priceMin: { [Category.WATCH]: 2000, [Category.HANDBAG]: 2000, [Category.JEWELLERY]: 2000 },
   priceMax: { [Category.WATCH]: 50000, [Category.HANDBAG]: 50000, [Category.JEWELLERY]: 50000 },

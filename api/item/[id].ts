@@ -1,5 +1,5 @@
 import { json, methodNotAllowed, readJson } from '../_lib/respond.js';
-import { getItemById, updateItem, getSettings, publishReviewedWatch } from '../_lib/db.js';
+import { getItemById, updateItem, getSettings, publishReviewedWatch, publicWatchGallery } from '../_lib/db.js';
 import { verifyAdminToken } from '../_lib/auth.js';
 import { Category, PublishState } from '../../types.js';
 import { pricedItem } from '../_lib/pricing.js';
@@ -84,6 +84,6 @@ export default async function handler(req: any, res: any) {
   if (!isAdmin && (item.category !== Category.WATCH || item.publishStatus !== PublishState.PUBLISHED || item.status !== 'ACTIVE')) {
     return json(res, 404, { error: 'NOT_FOUND' });
   }
-  try { return json(res, 200, { item: pricedItem(item, await getSettings(), isAdmin) }); }
+  try { return json(res, 200, { item: pricedItem(isAdmin ? item : publicWatchGallery(item), await getSettings(), isAdmin) }); }
   catch { return json(res, 503, { error: 'INVENTORY_UNAVAILABLE' }); }
 }

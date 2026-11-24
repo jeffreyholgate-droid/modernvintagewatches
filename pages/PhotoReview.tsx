@@ -29,7 +29,7 @@ export function PhotoReview({ photos, onApproval, disabled }: {
 
   return <fieldset disabled={disabled} className="space-y-3 border border-stone-200 p-4">
     <legend className="px-1 font-medium">Photo review</legend>
-    <p className="text-sm text-stone-600">Choose the cover that best shows the watch. Compare each studio view with the original and check that wear, colour and detail are still clear.</p>
+    <p className="text-sm text-stone-600">Choose the cover that best shows the watch. Compare each studio view with the original. Keep the listing in review if any image shows private details or makes wear harder to see.</p>
     {!photo ? <p className="text-sm text-amber-800">No source photos are available. The listing cannot be published.</p> : <>
       <div className="flex flex-wrap gap-2" aria-label="Select a photo to review">
         {photos.map((entry, i) => <button type="button" key={entry.url} aria-pressed={index === i}
@@ -78,7 +78,7 @@ export function PhotoReview({ photos, onApproval, disabled }: {
             else next.delete(index);
             apply(next, tones, cover);
           }} />
-        I compared this image with the original and confirmed that wear and detail remain visible.
+        Wear and detail remain visible, and this image is suitable to show publicly.
       </label>
       <p role="status" className="text-xs text-muted">{approved.size} of {photos.length} photos reviewed</p>
     </>}
