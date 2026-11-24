@@ -2,6 +2,7 @@ import { json, methodNotAllowed, readJson } from './_lib/respond.js';
 import { getItemById, getSettings } from './_lib/db.js';
 import { EbayClient } from '../server/ebay.js';
 import { attachCheckoutSession, getOrderByCheckoutKey, getOrderById, reserveOrder } from './_lib/orders.js';
+import { getOperations } from './_lib/order-operations.js';
 import { linkedPaymentStatus, startOrderCheckout } from './_lib/checkout-order.js';
 import {
   authoritativeLines, CHECKOUT_MARKER, checkoutConfiguration,
@@ -28,7 +29,10 @@ export default async function handler(req: any, res: any) {
       }
       const order = await getOrderById(session.metadata.order_id);
       if (!order) return json(res, 404, { error: 'SESSION_NOT_FOUND' });
-      return json(res, 200, linkedPaymentStatus(session, order));
+      const payment = linkedPaymentStatus(session, order);
+      const operation = payment.paid && order.status === 'paid_awaiting_source'
+        ? (await getOperations([order.id])).get(order.id) : null;
+      return json(res, 200, { ...payment, orderProgress: operation?.state ?? null });
     }
 
     const { stripeKey, origin } = checkoutConfiguration(process.env);

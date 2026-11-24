@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { fetchOrders, type AdminOrderSummary } from '../lib/api';
 import { formatPence } from '../lib/cart-pricing';
+import { OrderOperations, operationLabels } from './OrderOperations';
 
 const labels: Record<string, string> = {
   pending_payment: 'Awaiting payment',
@@ -38,7 +39,7 @@ const AdminOrders: React.FC = () => {
       <div className="flex justify-between items-start gap-6 border-b border-line pb-6">
         <div>
           <h1 className="text-2xl">Orders</h1>
-          <p className="mt-3 text-sm text-muted max-w-2xl">Recent test orders and their payment status. Payment does not confirm an eBay purchase or dispatch.</p>
+          <p className="mt-3 text-sm text-muted max-w-2xl">Review test payments, check eBay offers and track sourcing, inspection, dispatch and refunds.</p>
         </div>
         <button onClick={() => setAttempt(n => n + 1)} disabled={loading} className="text-sm underline disabled:opacity-50">Refresh</button>
       </div>
@@ -50,7 +51,7 @@ const AdminOrders: React.FC = () => {
             <article key={order.id} className="py-8">
               <div className="flex flex-wrap gap-4 justify-between">
                 <div>
-                  <p className="font-medium">{labels[order.status] || 'Status unavailable'}</p>
+                  <p className="font-medium">{order.status === 'paid_awaiting_source' ? operationLabels[order.operation?.state ?? 'awaiting_source'] : labels[order.status] || 'Status unavailable'}</p>
                   <p className="mt-2 text-xs text-muted break-all">Order {order.id}</p>
                   <p className="mt-1 text-xs text-muted">{new Date(order.createdAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })}</p>
                 </div>
@@ -73,6 +74,9 @@ const AdminOrders: React.FC = () => {
                   </li>;
                 })}
               </ul>
+              {order.status === 'paid_awaiting_source' && <OrderOperations order={order} onChange={operation =>
+                setOrders(previous => previous.map(value => value.id === order.id ? { ...value, operation } : value))
+              } />}
               {order.status === 'payment_review' ? <p className="mt-5 text-sm text-amber-800">Check this payment in Stripe before purchasing, releasing stock or retrying payment.</p> : null}
               {order.status === 'pending_payment' ? <p className="mt-5 text-xs text-muted">Items remain reserved until payment or a verified checkout-expiry notification.</p> : null}
             </article>

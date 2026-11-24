@@ -11,7 +11,7 @@ function response() {
   };
 }
 
-test('orders list requires server-verified admin authentication and does not permit changes', async () => {
+test('orders list requires server-verified admin authentication and rejects invalid or unauthenticated changes', async () => {
   const savedSecret = process.env.ADMIN_JWT_SECRET;
   const originalFetch = globalThis.fetch;
   process.env.ADMIN_JWT_SECRET = 'test-admin-secret-for-order-auth';
@@ -20,13 +20,15 @@ test('orders list requires server-verified admin authentication and does not per
   try {
     for (const headers of [{}, { authorization: 'Bearer fake' }]) {
       const res = response();
-      await handler({ method: 'GET', headers }, res);
-      assert.equal(res.statusCode, 401);
+      for (const method of ['GET', 'POST']) {
+        await handler({ method, headers }, res);
+        assert.equal(res.statusCode, 401);
+      }
     }
     const res = response();
-    await handler({ method: 'POST', headers: { authorization: `Bearer ${await signAdminToken({ role: 'admin' })}` } }, res);
-    assert.equal(res.statusCode, 405);
-    assert.equal(res.headers.Allow, 'GET');
+    await handler({ method: 'POST', body: {}, headers: { authorization: `Bearer ${await signAdminToken({ role: 'admin' })}` } }, res);
+    assert.equal(res.statusCode, 400);
+    assert.equal(res.body.error, 'INVALID_OPERATION');
     assert.equal(contactedDatabase, false);
   } finally {
     globalThis.fetch = originalFetch;

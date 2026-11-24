@@ -44,7 +44,7 @@ export type StripeEventInput = {
 const knownErrors = new Set([
   'INVALID_ORDER', 'INVALID_EVENT', 'ITEM_UNAVAILABLE', 'ITEM_CHANGED', 'CHECKOUT_KEY_REUSED',
   'ORDER_NOT_FOUND', 'SESSION_CONFLICT', 'ORDER_UNAVAILABLE', 'ORDER_SESSION_PENDING',
-  'PRICE_CHANGED', 'INVALID_PRICING_SETTINGS',
+  'PRICE_CHANGED', 'INVALID_PRICING_SETTINGS', 'OPERATION_CHANGED', 'OPERATION_NOT_ALLOWED',
 ]);
 export class OrderError extends Error {
   constructor(public code: string) { super(code); }
@@ -89,7 +89,7 @@ function client(): SupabaseClient {
   catch { throw new OrderError('ORDER_STORAGE_UNAVAILABLE'); }
 }
 
-async function rpc(name: string, args: Record<string, unknown>): Promise<any> {
+export async function rpc(name: string, args: Record<string, unknown>): Promise<any> {
   try {
     const { data, error } = await client().rpc(name, args);
     if (error) throw new OrderError(knownErrors.has(error.message) ? error.message : 'ORDER_STORAGE_UNAVAILABLE');

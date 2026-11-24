@@ -1,5 +1,6 @@
 import { PublishState } from '../types';
 import type { PricingQuote } from '../api/_lib/pricing';
+import type { Operation, OperationState, RefundReason, SourceCheck } from '../api/_lib/order-operations';
 
 const API_BASE = (import.meta as any).env?.VITE_API_BASE || '';
 
@@ -113,10 +114,23 @@ export interface AdminOrderSummary {
   currency: string;
   createdAt: string;
   stripeSessionId: string | null;
+  operation: Operation | null;
   lines: Array<{ itemId: string; title: string; amountPence: number; sourceUrl: string; ebayItemId: string; pricing?: PricingQuote | null }>;
 }
 
 export async function fetchOrders(): Promise<AdminOrderSummary[]> {
   const { orders } = await request<{ orders: AdminOrderSummary[] }>('/api/orders', { method: 'GET' }, true);
   return orders;
+}
+
+type OrderAction = { action: 'check_source'; itemId: string }
+  | { action: 'refund_requested'; revision: number; reason: RefundReason }
+  | { action: Exclude<OperationState, 'refunded' | 'refund_requested'> | 'check_refund'; revision: number };
+
+export async function manageOrder(orderId: string, action: OrderAction) {
+  return request<{
+    source?: SourceCheck;
+    operation?: Operation;
+    refund?: { succeededPence: number; pending: boolean; needsAttention: boolean; complete: boolean };
+  }>('/api/orders', { method: 'POST', body: JSON.stringify({ orderId, ...action }) }, true);
 }
