@@ -6,8 +6,7 @@ Gemini-assisted description drafts and a guarded Stripe integration.
 The business sources watches from eBay after a customer places an order.
 The recovery branch is **not ready to accept real orders**. Checkout defaults
 to disabled and permits test-mode keys only. Durable test orders, reservations
-and signed webhooks are implemented. Preview retail pricing is implemented;
-live sourcing and refunds are not.
+and signed webhooks are implemented. The preview includes retail pricing, manual sourcing and dispatch records, and Stripe Sandbox refund reconciliation. See [MVW launch handoff](MVW-LAUNCH.md) for the review procedure and remaining commercial requirements.
 
 ## Current position — 22 November 2026
 
